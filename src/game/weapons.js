@@ -1,7 +1,9 @@
+// ammo: null = unlimited, number = finite per match
 export const WEAPONS = [
   {
     id: 'shell',
     label: 'Basic Shell',
+    ammo: null,
     speedFactor: 1,
     gravityScale: 1,
     windScale: 1,
@@ -23,6 +25,7 @@ export const WEAPONS = [
   {
     id: 'mortar',
     label: 'Heavy Mortar',
+    ammo: 5,
     speedFactor: 0.76,
     gravityScale: 1.22,
     windScale: 0.68,
@@ -44,6 +47,7 @@ export const WEAPONS = [
   {
     id: 'split',
     label: 'Split Shot',
+    ammo: 3,
     speedFactor: 0.92,
     gravityScale: 0.95,
     windScale: 1.15,
@@ -70,6 +74,7 @@ export const WEAPONS = [
   {
     id: 'bouncer',
     label: 'Bouncer',
+    ammo: 3,
     speedFactor: 0.86,
     gravityScale: 1.08,
     windScale: 0.75,

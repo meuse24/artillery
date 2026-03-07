@@ -16,7 +16,7 @@ import { Tank } from '../entities/Tank.js';
 import { AudioManager } from '../systems/AudioManager.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
-import { getWeapon } from '../weapons.js';
+import { WEAPONS, getWeapon } from '../weapons.js';
 
 const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
 const ROUND_STAT_TEMPLATE = () => ({
@@ -191,6 +191,17 @@ export class GameScene extends Phaser.Scene {
 
   isCpuControlledPlayer(index = this.turnIndex) {
     return this.currentMode === 'cpu' && index === 1;
+  }
+
+  cycleWeapon(player, direction) {
+    let next = player.weaponIndex;
+    for (let i = 0; i < WEAPONS.length; i += 1) {
+      next = ((next + direction) % WEAPONS.length + WEAPONS.length) % WEAPONS.length;
+      if (player.getAmmo(WEAPONS[next].id) > 0) {
+        player.setWeaponIndex(next);
+        return;
+      }
+    }
   }
 
   createRoundStats() {
@@ -433,7 +444,10 @@ export class GameScene extends Phaser.Scene {
     // A fresh terrain canvas doubles as render target and collision source.
     this.terrain.generate();
     this.players = this.createPlayers();
-    this.players.forEach((player) => player.syncToTerrain(this.terrain));
+    this.players.forEach((player) => {
+      player.syncToTerrain(this.terrain);
+      player.initAmmo(WEAPONS);
+    });
     this.positionWindsock();
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
@@ -1018,13 +1032,13 @@ export class GameScene extends Phaser.Scene {
       }
 
       if (Phaser.Input.Keyboard.JustDown(this.inputKeys.q)) {
-        player.setWeaponIndex(player.weaponIndex - 1);
+        this.cycleWeapon(player, -1);
         this.markPredictionDirty();
         hudDirty = true;
       }
 
       if (Phaser.Input.Keyboard.JustDown(this.inputKeys.e)) {
-        player.setWeaponIndex(player.weaponIndex + 1);
+        this.cycleWeapon(player, 1);
         this.markPredictionDirty();
         hudDirty = true;
       }
@@ -1085,6 +1099,11 @@ export class GameScene extends Phaser.Scene {
 
     const player = this.getActivePlayer();
     const weapon = getWeapon(player.weaponIndex);
+
+    if (weapon.ammo !== null && player.getAmmo(weapon.id) <= 0) {
+      this.showTurnBanner('No ammo — switch weapon!');
+      return;
+    }
     const origin = player.getFireOrigin();
     const angle = player.getWorldAngle();
     const speed = player.power * weapon.speedFactor;
@@ -1113,6 +1132,9 @@ export class GameScene extends Phaser.Scene {
       duration: 80
     });
 
+    if (weapon.ammo !== null) {
+      player.spendAmmo(weapon.id);
+    }
     this.resolving = true;
     this.clearPrediction();
   }
@@ -1677,14 +1699,19 @@ export class GameScene extends Phaser.Scene {
       windStrength: this.getWindStrengthLabel(),
       windEffect: this.getWindEffectText(),
       remainingMove: this.remainingMove,
-      players: this.players.map((player) => ({
-        name: player.name,
-        hp: player.hp,
-        pitch: Math.round(player.pitch),
-        power: Math.round(player.power),
-        weapon: getWeapon(player.weaponIndex).label,
-        wins: this.highscores[player.name] ?? 0
-      })),
+      players: this.players.map((player) => {
+        const w = getWeapon(player.weaponIndex);
+        const ammoCount = player.getAmmo(w.id);
+        const ammoText = w.ammo === null ? '' : ` (${ammoCount === Infinity ? '∞' : ammoCount})`;
+        return {
+          name: player.name,
+          hp: player.hp,
+          pitch: Math.round(player.pitch),
+          power: Math.round(player.power),
+          weapon: w.label + ammoText,
+          wins: this.highscores[player.name] ?? 0
+        };
+      }),
       gameOver: this.gameOver,
       winner: this.winner?.name ?? null
     };

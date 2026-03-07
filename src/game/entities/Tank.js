@@ -26,6 +26,7 @@ export class Tank extends Phaser.GameObjects.Container {
     this.pitch = 48;
     this.power = 360;
     this.weaponIndex = 0;
+    this.ammo = {};
     this.slideVelocity = 0;
     this.terrainSlope = 0;
     this.motionTime = Phaser.Math.FloatBetween(0, Math.PI * 2);
@@ -78,6 +79,26 @@ export class Tank extends Phaser.GameObjects.Container {
 
   setPower(nextPower) {
     this.power = Phaser.Math.Clamp(nextPower, MIN_POWER, MAX_POWER);
+  }
+
+  initAmmo(weapons) {
+    this.ammo = {};
+    weapons.forEach((w) => {
+      if (w.ammo !== null) {
+        this.ammo[w.id] = w.ammo;
+      }
+    });
+  }
+
+  getAmmo(weaponId) {
+    const val = this.ammo[weaponId];
+    return val === undefined ? Infinity : val;
+  }
+
+  spendAmmo(weaponId) {
+    if (this.ammo[weaponId] !== undefined) {
+      this.ammo[weaponId] = Math.max(0, this.ammo[weaponId] - 1);
+    }
   }
 
   setWeaponIndex(index) {
