@@ -266,6 +266,10 @@ npm run preview
   - kapselt Keyboard/Pointer/Wheel-Input inkl. sauberem `bind()`/`destroy()`
 - `src/game/systems/OverlayStateSystem.js`
   - kapselt Overlay-State-Machine und Overlay-Textaufbau (Start/Turn/Help/GameOver)
+- `src/game/ui/MobileControls.js`
+  - entkoppelt mobile HUD-Buttons (Weapon/Help) von der UIScene
+- `src/game/ui/OrientationGuard.js`
+  - kapselt Portrait/Landscape-Guard inkl. Pause/Resume-Logik
 
 ## Technische Hinweise
 
@@ -296,6 +300,10 @@ npm run preview
   - Input aus `GameScene` in `InputController` extrahiert
   - Overlay-Flow in `OverlayStateSystem` extrahiert
   - `GameScene` delegiert Overlay-Methoden und bleibt Orchestrator
+- `Refactor Phase 3` abgeschlossen (UI-Entkopplung):
+  - Touch-Buttons aus `UIScene` in `MobileControls` extrahiert
+  - Orientation-Handling in `OrientationGuard` extrahiert
+  - `UIScene` hat nun zentrale UI-Cleanup-Hooks (`shutdown`/`destroy`)
 
 ## Troubleshooting
 

@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
+import { MobileControls } from '../ui/MobileControls.js';
+import { OrientationGuard } from '../ui/OrientationGuard.js';
 
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -489,30 +491,8 @@ export class UIScene extends Phaser.Scene {
       .on('pointerover', () => this.startSwitchModeText.setColor('#ffd050'))
       .on('pointerout', () => this.startSwitchModeText.setColor('#f2b84b'));
 
-    if (this.isTouchDevice) {
-      this.mobileWeaponButton
-        .on('pointerdown', () => {
-          if (this.gameScene.overlayState || this.gameScene.gameOver || this.gameScene.resolving || this.gameScene.isCpuControlledPlayer()) return;
-          if (this.gameScene.turnPhase !== 'aim') return;
-          const player = this.gameScene.getActivePlayer();
-          this.gameScene.cycleWeapon(player, 1);
-          this.gameScene.markPredictionDirty();
-          this.gameScene.syncHud();
-        })
-        .on('pointerover', () => this.mobileWeaponButton.setBackgroundColor('rgba(26,48,63,0.95)'))
-        .on('pointerout', () => this.mobileWeaponButton.setBackgroundColor('rgba(11,22,30,0.9)'));
-
-      this.mobileHelpButton
-        .on('pointerdown', () => {
-          if (this.gameScene.overlayState?.type === 'help') {
-            this.handleOverlayClick();
-            return;
-          }
-          this.gameScene.showHelpOverlay();
-        })
-        .on('pointerover', () => this.mobileHelpButton.setBackgroundColor('rgba(26,48,63,0.95)'))
-        .on('pointerout', () => this.mobileHelpButton.setBackgroundColor('rgba(11,22,30,0.9)'));
-    }
+    this.mobileControls = new MobileControls(this);
+    this.mobileControls.bind();
 
     // Mouse wheel — help overlay scroll
     this.input.on('wheel', (_ptr, _objs, _dx, deltaY) => {
@@ -537,8 +517,22 @@ export class UIScene extends Phaser.Scene {
     this.drawFrame();
     this.applyResponsiveLayout();
     this.scale.on('resize', this.applyResponsiveLayout, this);
-    window.addEventListener('orientationchange', () => this.updateOrientationGuard());
-    this.updateOrientationGuard();
+    this.orientationGuard = new OrientationGuard(this);
+    this.orientationGuard.bind();
+    this.events.once('shutdown', this.handleShutdown, this);
+    this.events.once('destroy', this.handleShutdown, this);
+  }
+
+  handleShutdown() {
+    this.scale.off('resize', this.applyResponsiveLayout, this);
+    this.gameScene?.events.off(GAME_SCENE_EVENTS.HUD_UPDATE, this.updateHud, this);
+    this.gameScene?.events.off(GAME_SCENE_EVENTS.TURN_BANNER, this.showBanner, this);
+    this.gameScene?.events.off(GAME_SCENE_EVENTS.OVERLAY_UPDATE, this.updateOverlay, this);
+    this.gameScene?.events.off(GAME_SCENE_EVENTS.TIMER_UPDATE, this.updateTimer, this);
+    this.mobileControls?.destroy();
+    this.mobileControls = null;
+    this.orientationGuard?.destroy();
+    this.orientationGuard = null;
   }
 
   // ── Overlay click router ─────────────────────────────────────────────────────
@@ -627,32 +621,11 @@ export class UIScene extends Phaser.Scene {
   }
 
   isPortraitViewport() {
-    const viewport = window.visualViewport;
-    const w = viewport?.width ?? window.innerWidth;
-    const h = viewport?.height ?? window.innerHeight;
-    return h > w;
+    return this.orientationGuard?.isPortraitViewport() ?? false;
   }
 
   updateOrientationGuard() {
-    if (!this.isTouchDevice || !this.gameScene) {
-      this.orientationShade.setVisible(false);
-      this.orientationTitle.setVisible(false);
-      this.orientationBody.setVisible(false);
-      return;
-    }
-
-    const portrait = this.isPortraitViewport();
-    this.orientationShade.setVisible(portrait);
-    this.orientationTitle.setVisible(portrait);
-    this.orientationBody.setVisible(portrait);
-
-    if (portrait && !this.pausedForOrientation) {
-      this.gameScene.scene.pause();
-      this.pausedForOrientation = true;
-    } else if (!portrait && this.pausedForOrientation) {
-      this.gameScene.scene.resume();
-      this.pausedForOrientation = false;
-    }
+    this.orientationGuard?.update();
   }
 
   // ── Frame / HUD chrome ────────────────────────────────────────────────────────
