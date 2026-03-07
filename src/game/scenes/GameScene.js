@@ -10,6 +10,7 @@ import {
   PLAYER_COLORS,
   PLAYER_NAMES,
   POWER_STEP,
+  TURN_TIME_LIMIT,
   WIND_LIMIT
 } from '../constants.js';
 import { Tank } from '../entities/Tank.js';
@@ -456,6 +457,7 @@ export class GameScene extends Phaser.Scene {
     this.turnIndex = Phaser.Math.Between(0, 1);
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
+    this.turnTimer = TURN_TIME_LIMIT;
     this.resolving = false;
     this.turnPending = false;
     this.gameOver = false;
@@ -932,6 +934,7 @@ export class GameScene extends Phaser.Scene {
 
     if (!this.gameOver && !this.resolving) {
       this.handlePlayerInput(dt);
+      this.updateTurnTimer(dt);
       if (this.turnPhase === 'aim') {
         this.drawPrediction();
       } else {
@@ -1109,6 +1112,24 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.Out',
       onComplete: () => dust.destroy()
     });
+  }
+
+  updateTurnTimer(dt) {
+    if (this.isCpuControlledPlayer() || this.overlayActive()) {
+      return;
+    }
+
+    this.turnTimer = Math.max(0, this.turnTimer - dt);
+    this.events.emit('timer:update', this.turnTimer, TURN_TIME_LIMIT);
+
+    if (this.turnTimer <= 0) {
+      if (this.turnPhase === 'move') {
+        this.enterAimPhase();
+      } else {
+        // Auto-fire when aim timer runs out
+        this.fireActiveWeapon();
+      }
+    }
   }
 
   enterAimPhase() {
@@ -1556,6 +1577,7 @@ export class GameScene extends Phaser.Scene {
 
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
+    this.turnTimer = TURN_TIME_LIMIT;
     this.wind = this.rollWind();
     this.resolving = false;
     this.stabilityActive = true;
@@ -1755,7 +1777,9 @@ export class GameScene extends Phaser.Scene {
         };
       }),
       gameOver: this.gameOver,
-      winner: this.winner?.name ?? null
+      winner: this.winner?.name ?? null,
+      turnTimer: Math.ceil(this.turnTimer ?? TURN_TIME_LIMIT),
+      isCpuTurn: this.isCpuControlledPlayer()
     };
   }
 

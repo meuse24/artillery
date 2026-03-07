@@ -23,3 +23,4 @@ export const MAX_PITCH = 84;
 export const BASE_HP = 100;
 export const GRAVITY = 250;
 export const WIND_LIMIT = 50;
+export const TURN_TIME_LIMIT = 25; // seconds per combined move+aim phase

@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
+import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS, TURN_TIME_LIMIT } from '../constants.js';
 
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -65,6 +65,17 @@ export class UIScene extends Phaser.Scene {
       })
       .setOrigin(0.5, 0)
       .setDepth(102);
+
+    this.timerBar = this.add.graphics().setDepth(103);
+    this.timerText = this.add
+      .text(GAME_WIDTH * 0.5, 74, '', {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '13px',
+        color: '#f4f1df',
+        align: 'center'
+      })
+      .setOrigin(0.5, 0)
+      .setDepth(103);
 
     this.objectiveText = this.add
       .text(GAME_WIDTH * 0.5, 118, '', {
@@ -293,6 +304,7 @@ export class UIScene extends Phaser.Scene {
     this.gameScene.events.on('hud:update', this.updateHud, this);
     this.gameScene.events.on('turn:banner', this.showBanner, this);
     this.gameScene.events.on('overlay:update', this.updateOverlay, this);
+    this.gameScene.events.on('timer:update', this.updateTimer, this);
 
     [this.startModeCpuButton, this.startModeCpuText].forEach((item) => {
       item.setInteractive({ useHandCursor: true }).on('pointerdown', () => this.setStartMode('cpu'));
@@ -452,6 +464,12 @@ export class UIScene extends Phaser.Scene {
   updateHud(state) {
     if (!state) {
       return;
+    }
+
+    // Hide timer when it's the CPU's turn or game is over
+    if (state.isCpuTurn || state.gameOver) {
+      this.timerBar.clear();
+      this.timerText.setText('');
     }
 
     const left = state.players[0];
@@ -755,6 +773,32 @@ export class UIScene extends Phaser.Scene {
         ease: 'Sine.InOut'
       });
     }
+  }
+
+  updateTimer(remaining, total) {
+    this.timerBar.clear();
+    if (remaining >= total) {
+      this.timerText.setText('');
+      return;
+    }
+
+    const ratio = remaining / total;
+    const barWidth = 100;
+    const barX = GAME_WIDTH * 0.5 - barWidth * 0.5;
+    const barY = 76;
+    const urgent = remaining <= 5;
+    const color = urgent ? 0xff4444 : remaining <= 10 ? 0xf2b84b : 0x7fe7dc;
+
+    // Background track
+    this.timerBar.fillStyle(0x08121a, 0.72);
+    this.timerBar.fillRoundedRect(barX - 2, barY - 2, barWidth + 4, 10, 4);
+    // Fill
+    this.timerBar.fillStyle(color, urgent ? (Math.floor(this.game.loop.frame / 8) % 2 === 0 ? 0.95 : 0.5) : 0.86);
+    this.timerBar.fillRoundedRect(barX, barY, Math.round(barWidth * ratio), 6, 3);
+
+    this.timerText.setText(`${Math.ceil(remaining)}s`);
+    this.timerText.setColor(urgent ? '#ff6666' : '#f4f1df');
+    this.timerText.setY(barY + 10);
   }
 
   showBanner(text) {
