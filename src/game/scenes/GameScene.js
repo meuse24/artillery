@@ -1,0 +1,1648 @@
+import Phaser from 'phaser';
+import {
+  AIM_SPEED,
+  BARREL_LENGTH,
+  GAME_HEIGHT,
+  GAME_WIDTH,
+  GRAVITY,
+  MOVE_PER_TURN,
+  MOVE_SPEED,
+  PLAYER_COLORS,
+  PLAYER_NAMES,
+  POWER_STEP,
+  WIND_LIMIT
+} from '../constants.js';
+import { Tank } from '../entities/Tank.js';
+import { AudioManager } from '../systems/AudioManager.js';
+import { ScoreStore } from '../systems/ScoreStore.js';
+import { Terrain } from '../systems/Terrain.js';
+import { getWeapon } from '../weapons.js';
+
+const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
+const ROUND_STAT_TEMPLATE = () => ({
+  shots: 0,
+  hits: 0,
+  directHits: 0,
+  damageDealt: 0,
+  bestHit: 0
+});
+
+export class GameScene extends Phaser.Scene {
+  constructor() {
+    super('game');
+  }
+
+  create() {
+    this.createBackdrop();
+
+    this.audioManager = new AudioManager();
+    this.scoreStore = new ScoreStore(PLAYER_NAMES);
+    this.highscores = this.scoreStore.load();
+    this.currentMode = 'cpu';
+    this.roundStats = this.createRoundStats();
+    this.cpuState = null;
+    this.ambientTime = Phaser.Math.FloatBetween(0, Math.PI * 2);
+    this.ambientAccumulator = 0;
+    this.ambientStep = 1 / 30;
+    this.stabilityAccumulator = 0;
+    this.stabilityStep = 1 / 45;
+    this.stabilityActive = true;
+    this.activeTankDriving = false;
+    this.moveDustCooldown = 0;
+    this.predictionDirty = true;
+    this.predictionVisible = false;
+    this.cameraFocusTween = null;
+    this.terrain = new Terrain(this, GAME_WIDTH, GAME_HEIGHT);
+    this.projectiles = [];
+    // One emitter handles muzzle burst, split burst and explosion sparks.
+    this.particles = this.add.particles(0, 0, 'particle-dot', {
+      lifespan: 420,
+      speed: { min: 30, max: 180 },
+      scale: { start: 0.8, end: 0 },
+      quantity: 0,
+      emitting: false,
+      blendMode: 'ADD'
+    });
+    this.particles.setDepth(60);
+
+    this.prediction = this.add.graphics().setDepth(45);
+    this.muzzleFlash = this.add.circle(0, 0, 8, 0xffd98c, 0).setDepth(55);
+    this.windRibbon = this.add.graphics().setDepth(7);
+
+    this.inputKeys = this.input.keyboard.addKeys({
+      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
+      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
+      up: Phaser.Input.Keyboard.KeyCodes.UP,
+      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
+      a: Phaser.Input.Keyboard.KeyCodes.A,
+      d: Phaser.Input.Keyboard.KeyCodes.D,
+      j: Phaser.Input.Keyboard.KeyCodes.J,
+      l: Phaser.Input.Keyboard.KeyCodes.L,
+      q: Phaser.Input.Keyboard.KeyCodes.Q,
+      e: Phaser.Input.Keyboard.KeyCodes.E,
+      h: Phaser.Input.Keyboard.KeyCodes.H,
+      m: Phaser.Input.Keyboard.KeyCodes.M,
+      esc: Phaser.Input.Keyboard.KeyCodes.ESC,
+      enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
+      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
+      r: Phaser.Input.Keyboard.KeyCodes.R
+    });
+
+    this.installAudioUnlock();
+
+    this.startMatch({ showTurnOverlay: false });
+    this.showStartOverlay();
+
+    this.scale.on('resize', () => {
+      this.renderWindRibbon();
+      this.syncHud();
+    });
+  }
+
+  installAudioUnlock() {
+    this.audioUnlockHandler = () => {
+      const unlocked = this.audioManager.unlock();
+      if (!unlocked) {
+        return;
+      }
+
+      window.removeEventListener('pointerdown', this.audioUnlockHandler, true);
+      window.removeEventListener('mousedown', this.audioUnlockHandler, true);
+      window.removeEventListener('touchstart', this.audioUnlockHandler, true);
+      window.removeEventListener('keydown', this.audioUnlockHandler, true);
+    };
+
+    window.addEventListener('pointerdown', this.audioUnlockHandler, true);
+    window.addEventListener('mousedown', this.audioUnlockHandler, true);
+    window.addEventListener('touchstart', this.audioUnlockHandler, true);
+    window.addEventListener('keydown', this.audioUnlockHandler, true);
+  }
+
+  focusCameraOn(x, y, duration = 280, zoom = 1.04) {
+    const camera = this.cameras.main;
+    if (this.cameraFocusTween) {
+      this.cameraFocusTween.remove();
+    }
+
+    this.cameraFocusTween = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration,
+      ease: 'Sine.Out',
+      onUpdate: (tween) => {
+        const value = tween.getValue();
+        camera.scrollX = Phaser.Math.Linear(camera.scrollX, Phaser.Math.Clamp(x - camera.width * 0.5, -24, 24), value);
+        camera.scrollY = Phaser.Math.Linear(camera.scrollY, Phaser.Math.Clamp(y - camera.height * 0.5, -18, 18), value);
+        camera.zoom = Phaser.Math.Linear(camera.zoom, zoom, value);
+      }
+    });
+  }
+
+  resetCameraFocus(duration = 360) {
+    const camera = this.cameras.main;
+    if (this.cameraFocusTween) {
+      this.cameraFocusTween.remove();
+    }
+
+    this.cameraFocusTween = this.tweens.addCounter({
+      from: 0,
+      to: 1,
+      duration,
+      ease: 'Quad.Out',
+      onUpdate: (tween) => {
+        const value = tween.getValue();
+        camera.scrollX = Phaser.Math.Linear(camera.scrollX, 0, value);
+        camera.scrollY = Phaser.Math.Linear(camera.scrollY, 0, value);
+        camera.zoom = Phaser.Math.Linear(camera.zoom, 1, value);
+      }
+    });
+  }
+
+  markPredictionDirty() {
+    this.predictionDirty = true;
+  }
+
+  clearPrediction() {
+    if (!this.predictionVisible && !this.predictionDirty) {
+      return;
+    }
+
+    this.prediction.clear();
+    this.predictionVisible = false;
+    this.predictionDirty = false;
+  }
+
+  getModeLabel() {
+    return this.currentMode === 'cpu' ? 'Solo vs CPU' : 'Local Duel';
+  }
+
+  toggleMode() {
+    this.currentMode = this.currentMode === 'cpu' ? 'local' : 'cpu';
+    this.cpuState = null;
+  }
+
+  isCpuControlledPlayer(index = this.turnIndex) {
+    return this.currentMode === 'cpu' && index === 1;
+  }
+
+  createRoundStats() {
+    return Object.fromEntries(PLAYER_NAMES.map((name) => [name, ROUND_STAT_TEMPLATE()]));
+  }
+
+  getRoundStatsText() {
+    return PLAYER_NAMES.map((name) => {
+      const stats = this.roundStats[name];
+      return [
+        `${name}`,
+        `Shots ${stats.shots}  Hits ${stats.hits}`,
+        `Damage ${stats.damageDealt}  Best ${stats.bestHit}`
+      ].join('\n');
+    }).join('\n\n');
+  }
+
+  updateAmbient(dt) {
+    this.ambientTime += dt;
+
+    const sunX = GAME_WIDTH * 0.28 + Math.sin(this.ambientTime * 0.08) * 46;
+    const sunY = GAME_HEIGHT * 0.2 + Math.cos(this.ambientTime * 0.06) * 18;
+    const glowPulse = 1 + Math.sin(this.ambientTime * 0.95) * 0.04;
+
+    this.sunGlow.setPosition(sunX, sunY);
+    this.sunCore.setPosition(sunX, sunY);
+    this.sunHalo.setPosition(sunX, sunY);
+    this.sunGlow.setScale(glowPulse);
+    this.sunHalo.setScale(1 + Math.cos(this.ambientTime * 0.7) * 0.06);
+    this.sunCore.setAlpha(0.84 + Math.sin(this.ambientTime * 0.55) * 0.06);
+
+    this.haze.x = Math.sin(this.ambientTime * 0.035) * 24;
+    this.mountains.x = Math.sin(this.ambientTime * 0.03) * 10;
+    this.farMountains.x = Math.cos(this.ambientTime * 0.022) * 16;
+
+    this.clouds.forEach((cloud, index) => {
+      cloud.x += (5 + index * 2) * dt + this.wind * 0.015 * dt;
+      cloud.y += Math.sin(this.ambientTime * 0.28 + index) * 0.08;
+      if (cloud.x - cloud.width * 0.5 > GAME_WIDTH + 80) {
+        cloud.x = -cloud.width * 0.5 - 60;
+      }
+    });
+
+    this.groundDriftBands.forEach((band, index) => {
+      band.x += (8 + index * 3) * dt * Math.sign(this.wind || 1);
+      band.y = GAME_HEIGHT - 40 + Math.sin(this.ambientTime * (0.32 + index * 0.05) + index) * 4;
+      band.alpha = 0.04 + Math.abs(this.wind) / 1200 + index * 0.01;
+
+      if (band.x - band.width * 0.5 > GAME_WIDTH + 100) {
+        band.x = -band.width * 0.5 - 80;
+      } else if (band.x + band.width * 0.5 < -100) {
+        band.x = GAME_WIDTH + band.width * 0.5 + 80;
+      }
+    });
+
+    this.windSpecks.forEach((speck, index) => {
+      speck.motion.wobble += dt * (1.6 + index * 0.03);
+      speck.x += (speck.motion.speed + Math.abs(this.wind) * 1.4) * dt * Math.sign(this.wind || 1);
+      speck.y += Math.sin(speck.motion.wobble) * dt * (10 + speck.motion.drift);
+      speck.rotation = Math.sign(this.wind || 1) * 0.18;
+      speck.scaleX = 0.65 + Math.abs(this.wind) / 70;
+      speck.alpha = 0.05 + Math.abs(this.wind) / 600 + (Math.sin(speck.motion.wobble) + 1) * 0.03;
+
+      if (speck.x > GAME_WIDTH + 30) {
+        speck.x = -30;
+        speck.y = Phaser.Math.Between(90, GAME_HEIGHT - 130);
+      } else if (speck.x < -30) {
+        speck.x = GAME_WIDTH + 30;
+        speck.y = Phaser.Math.Between(90, GAME_HEIGHT - 130);
+      }
+    });
+
+    const direction = Math.abs(this.wind) < 4 ? 0 : Math.sign(this.wind);
+    const normalized = Phaser.Math.Clamp(Math.abs(this.wind) / WIND_LIMIT, 0, 1);
+    const windsockAngle = direction === 0 ? 0 : direction * normalized * 0.72;
+    const flutter = Math.sin(this.ambientTime * (6 + normalized * 4)) * (0.04 + normalized * 0.06);
+    const droop = 1 - normalized * 0.22;
+
+    this.windsock.rotation = windsockAngle + flutter;
+    this.windsock.scaleX = 0.6 + normalized * 0.95;
+    this.windsock.scaleY = droop;
+    this.windsockStripe.rotation = windsockAngle + flutter * 1.1;
+    this.windsockStripe.scaleX = 0.55 + normalized * 0.85;
+    this.windsockStripe.scaleY = droop * 0.96;
+    this.windsockStripe.x = this.windsockPole.x + direction * (16 + normalized * 8);
+    this.windsockStripe.y = this.windsock.y;
+  }
+
+  updateTankAnimations(dt) {
+    if (!this.players) {
+      return;
+    }
+
+    const activePlayer = this.getActivePlayer();
+    this.players.forEach((tank) => {
+      tank.setDriving(
+        tank === activePlayer &&
+        this.turnPhase === 'move' &&
+        !this.overlayActive() &&
+        !this.resolving &&
+        this.activeTankDriving
+      );
+      tank.updateAnimation(dt, this.wind);
+    });
+  }
+
+  updateTankStability(dt) {
+    if (!this.players || this.overlayActive() || !this.stabilityActive) {
+      return;
+    }
+
+    const activePlayer = this.getActivePlayer();
+    let keepActive = false;
+    this.players.forEach((tank) => {
+      if (!tank.isAlive()) {
+        return;
+      }
+
+      const isDrivenThisFrame =
+        tank === activePlayer &&
+        this.turnPhase === 'move' &&
+        !this.resolving &&
+        this.activeTankDriving;
+
+      if (isDrivenThisFrame) {
+        tank.slideVelocity = 0;
+        keepActive = true;
+        return;
+      }
+
+      const slopePush = Phaser.Math.Clamp(tank.terrainSlope * 42, -20, 20);
+      const shouldSlide = Math.abs(tank.terrainSlope) > 0.24;
+      keepActive = keepActive || shouldSlide || Math.abs(tank.slideVelocity) > 0.6;
+      const targetVelocity = shouldSlide ? slopePush : 0;
+      tank.slideVelocity = Phaser.Math.Linear(tank.slideVelocity, targetVelocity, Math.min(1, dt * 4));
+
+      if (Math.abs(tank.slideVelocity) < 1.2) {
+        tank.slideVelocity = 0;
+        return;
+      }
+
+      tank.x = Phaser.Math.Clamp(tank.x + tank.slideVelocity * dt, 48, GAME_WIDTH - 48);
+      tank.syncToTerrain(this.terrain);
+      if (tank === activePlayer && this.turnPhase === 'aim') {
+        this.markPredictionDirty();
+      }
+      this.trySpawnMoveDust(tank, Math.sign(tank.slideVelocity) || 1, 0.16);
+    });
+
+    this.stabilityActive = keepActive;
+  }
+
+  createBackdrop() {
+    this.add.rectangle(0, 0, GAME_WIDTH, GAME_HEIGHT, 0x102433).setOrigin(0).setDepth(0);
+    this.sunGlow = this.add.circle(GAME_WIDTH * 0.28, GAME_HEIGHT * 0.2, 132, 0xf4c471, 0.1).setDepth(1);
+    this.sunCore = this.add.circle(GAME_WIDTH * 0.28, GAME_HEIGHT * 0.2, 54, 0xf7cf84, 0.9).setDepth(2);
+    this.sunHalo = this.add.circle(GAME_WIDTH * 0.28, GAME_HEIGHT * 0.2, 84, 0xffefbf, 0.08).setDepth(1);
+
+    this.haze = this.add.graphics().setDepth(2);
+    this.haze.fillStyle(0xbfd2ca, 0.07);
+    this.haze.fillEllipse(GAME_WIDTH * 0.22, GAME_HEIGHT * 0.82, 520, 160);
+    this.haze.fillEllipse(GAME_WIDTH * 0.8, GAME_HEIGHT * 0.78, 680, 190);
+
+    this.clouds = [
+      this.add.ellipse(220, 145, 220, 56, 0xece4c9, 0.08).setDepth(2),
+      this.add.ellipse(640, 118, 280, 72, 0xece4c9, 0.07).setDepth(2),
+      this.add.ellipse(1040, 170, 240, 62, 0xece4c9, 0.06).setDepth(2)
+    ];
+
+    this.groundDriftBands = [
+      this.add.ellipse(240, GAME_HEIGHT - 42, 440, 58, 0xd9c18d, 0.06).setDepth(5),
+      this.add.ellipse(760, GAME_HEIGHT - 34, 520, 64, 0xe7d8ad, 0.05).setDepth(5),
+      this.add.ellipse(1120, GAME_HEIGHT - 40, 360, 52, 0xd4b985, 0.05).setDepth(5)
+    ];
+
+    this.mountains = this.add.graphics().setDepth(3);
+    this.mountains.fillStyle(0x1d3340, 0.92);
+    this.mountains.beginPath();
+    this.mountains.moveTo(0, GAME_HEIGHT);
+    this.mountains.lineTo(0, 440);
+    this.mountains.lineTo(180, 360);
+    this.mountains.lineTo(360, 430);
+    this.mountains.lineTo(520, 350);
+    this.mountains.lineTo(760, 470);
+    this.mountains.lineTo(930, 390);
+    this.mountains.lineTo(1100, 450);
+    this.mountains.lineTo(GAME_WIDTH, 390);
+    this.mountains.lineTo(GAME_WIDTH, GAME_HEIGHT);
+    this.mountains.closePath();
+    this.mountains.fillPath();
+
+    this.farMountains = this.add.graphics().setDepth(4);
+    this.farMountains.fillStyle(0x254050, 0.7);
+    this.farMountains.beginPath();
+    this.farMountains.moveTo(0, GAME_HEIGHT);
+    this.farMountains.lineTo(0, 510);
+    this.farMountains.lineTo(160, 470);
+    this.farMountains.lineTo(330, 530);
+    this.farMountains.lineTo(520, 460);
+    this.farMountains.lineTo(720, 550);
+    this.farMountains.lineTo(900, 505);
+    this.farMountains.lineTo(1140, 560);
+    this.farMountains.lineTo(GAME_WIDTH, 520);
+    this.farMountains.lineTo(GAME_WIDTH, GAME_HEIGHT);
+    this.farMountains.closePath();
+    this.farMountains.fillPath();
+
+    this.windSpecks = Array.from({ length: 18 }, () => {
+      const speck = this.add.rectangle(
+        Phaser.Math.Between(0, GAME_WIDTH),
+        Phaser.Math.Between(90, GAME_HEIGHT - 130),
+        Phaser.Math.Between(10, 24),
+        2,
+        0xece4c9,
+        Phaser.Math.FloatBetween(0.06, 0.18)
+      );
+      speck.setDepth(6);
+      speck.motion = {
+        speed: Phaser.Math.FloatBetween(34, 82),
+        drift: Phaser.Math.FloatBetween(-12, 12),
+        wobble: Phaser.Math.FloatBetween(0, Math.PI * 2)
+      };
+      return speck;
+    });
+
+    this.windsockPole = this.add.rectangle(0, 0, 4, 74, 0xd8d2bd, 0.95).setDepth(26);
+    this.windsock = this.add.rectangle(0, 0, 34, 10, 0xf2b84b, 0.95).setDepth(27);
+    this.windsock.setOrigin(0.08, 0.5);
+    this.windsockStripe = this.add.rectangle(0, 0, 10, 10, 0x7fe7dc, 0.95).setDepth(28);
+    this.windsockStripe.setOrigin(0.08, 0.5);
+  }
+
+  startMatch({ showTurnOverlay = true } = {}) {
+    this.clearProjectiles();
+
+    if (this.players) {
+      this.players.forEach((player) => player.destroy());
+    }
+
+    // A fresh terrain canvas doubles as render target and collision source.
+    this.terrain.generate();
+    this.players = this.createPlayers();
+    this.players.forEach((player) => player.syncToTerrain(this.terrain));
+    this.positionWindsock();
+    this.roundStats = this.createRoundStats();
+    this.cpuState = null;
+
+    this.turnIndex = Phaser.Math.Between(0, 1);
+    this.remainingMove = MOVE_PER_TURN;
+    this.turnPhase = 'move';
+    this.resolving = false;
+    this.turnPending = false;
+    this.gameOver = false;
+    this.winner = null;
+    this.wind = this.rollWind();
+    this.ambientAccumulator = 0;
+    this.stabilityAccumulator = 0;
+    this.clearOverlay();
+    this.stabilityActive = true;
+    this.resetCameraFocus(1);
+    this.audioManager.setWind(this.wind);
+    this.renderWindRibbon();
+    this.markPredictionDirty();
+    this.syncHud();
+
+    if (showTurnOverlay) {
+      this.presentTurnOverlay();
+    }
+  }
+
+  createPlayers() {
+    const leftX = Phaser.Math.Between(150, 300);
+    const rightX = Phaser.Math.Between(GAME_WIDTH - 300, GAME_WIDTH - 150);
+
+    return [
+      new Tank(this, {
+        x: leftX,
+        y: this.terrain.getSurfaceY(leftX),
+        name: PLAYER_NAMES[0],
+        color: PLAYER_COLORS[0],
+        facing: 1
+      }),
+      new Tank(this, {
+        x: rightX,
+        y: this.terrain.getSurfaceY(rightX),
+        name: PLAYER_NAMES[1],
+        color: PLAYER_COLORS[1],
+        facing: -1
+      })
+    ];
+  }
+
+  rollWind() {
+    return Phaser.Math.FloatBetween(-WIND_LIMIT, WIND_LIMIT);
+  }
+
+  getActivePlayer() {
+    return this.players[this.turnIndex];
+  }
+
+  getWindDirectionLabel() {
+    if (Math.abs(this.wind) < 4) {
+      return 'CALM';
+    }
+
+    return this.wind > 0 ? 'RIGHT' : 'LEFT';
+  }
+
+  getWindStrengthLabel() {
+    const magnitude = Math.abs(this.wind);
+    if (magnitude < 4) {
+      return 'Calm';
+    }
+    if (magnitude < 16) {
+      return 'Light';
+    }
+    if (magnitude < 30) {
+      return 'Breezy';
+    }
+    if (magnitude < 42) {
+      return 'Strong';
+    }
+    return 'Gusting';
+  }
+
+  getWindEffectText() {
+    if (Math.abs(this.wind) < 4) {
+      return 'Barely affects shots';
+    }
+
+    return this.wind > 0 ? 'Pushes shots to the right' : 'Pushes shots to the left';
+  }
+
+  positionWindsock() {
+    const x = GAME_WIDTH * 0.5;
+    const y = this.terrain.getSurfaceY(x);
+    this.windsockPole.setPosition(x, y - 34);
+    this.windsock.setPosition(x + 2, y - 62);
+    this.windsockStripe.setPosition(x + 14, y - 62);
+  }
+
+  overlayActive() {
+    return Boolean(this.overlayState);
+  }
+
+  showOverlay(payload) {
+    this.overlayState = payload;
+    this.events.emit('overlay:update', payload);
+  }
+
+  clearOverlay() {
+    this.overlayState = null;
+    this.events.emit('overlay:update', null);
+  }
+
+  showStartOverlay() {
+    this.showOverlay({
+      type: 'start',
+      title: 'ARTILLERY',
+      body: [
+        this.getModeLabel(),
+        '',
+        'Objective',
+        OBJECTIVE_TEXT,
+        '',
+        'Workflow',
+        '1. Move your tank a short distance.',
+        '2. Confirm the handoff.',
+        '3. Aim, set power, pick a weapon and fire.'
+      ].join('\n'),
+      scoreboard: this.buildScoreboardText(),
+      prompt: 'Press Space or Enter to start the round  |  M switch mode  |  H for Help'
+    });
+  }
+
+  presentTurnOverlay() {
+    const player = this.getActivePlayer();
+    this.showTurnBanner(`${player.name} move phase`);
+    this.audioManager.playTurn();
+    this.showOverlay({
+      type: 'turn',
+      title: `${player.name} Turn`,
+      body: [
+        this.isCpuControlledPlayer()
+          ? 'CPU is checking wind, terrain and shot power.'
+          : 'Pass the keyboard to the next player.',
+        '',
+        'Phase 1: Move left or right.',
+        'Phase 2: Aim, set power, choose a weapon, then fire.'
+      ].join('\n'),
+      scoreboard: this.buildScoreboardText(),
+      prompt: this.isCpuControlledPlayer()
+        ? 'CPU thinking...'
+        : 'Press Space or Enter when ready  |  H for Help'
+    });
+    this.syncHud();
+
+    if (this.isCpuControlledPlayer()) {
+      this.time.delayedCall(900, () => {
+        if (this.overlayState?.type === 'turn' && this.isCpuControlledPlayer()) {
+          this.clearOverlay();
+          this.startCpuTurn();
+          this.syncHud();
+        }
+      });
+    }
+  }
+
+  showGameOverOverlay() {
+    const winnerLine = this.winner ? `${this.winner.name} wins the round.` : 'The round ends in a draw.';
+    this.showOverlay({
+      type: 'gameover',
+      title: 'Round Over',
+      body: [
+        winnerLine,
+        this.getModeLabel(),
+        '',
+        'Objective',
+        OBJECTIVE_TEXT,
+        '',
+        'Round Stats',
+        this.getRoundStatsText()
+      ].join('\n'),
+      scoreboard: this.buildScoreboardText(),
+      prompt: 'Press Space, Enter or R for a new round  |  M switch mode  |  H for Help'
+    });
+  }
+
+  buildScoreboardText() {
+    return [
+      'Highscore',
+      ...PLAYER_NAMES.map((name) => `${name}: ${this.highscores[name] ?? 0} wins`)
+    ].join('\n');
+  }
+
+  buildHelpBody() {
+    return [
+      'Objective',
+      'Bring the enemy tank down to 0 HP before yours is destroyed.',
+      '',
+      'Round Flow',
+      '1. Move Phase: use Left/Right to spend a short movement budget.',
+      '2. Press Space to end movement early, or wait until movement runs out.',
+      '3. Aim Phase: adjust angle, power and weapon, then fire.',
+      '4. The projectile resolves, the terrain deforms and the turn changes.',
+      '',
+      'Damage',
+      'Explosions deal more damage near the center and less at the edge.',
+      'Cratered terrain changes future lines of fire and can expose tanks.'
+    ].join('\n');
+  }
+
+  buildHelpSidebar() {
+    return [
+      'Controls',
+      'Left/Right: move in Move Phase',
+      'Up/Down: aim in Aim Phase',
+      'A/D or J/L: lower/raise power',
+      'Q/E: cycle weapons',
+      'Space: confirm / fire',
+      'Enter: confirm overlays',
+      'H: open help',
+      'Esc: close help',
+      'R: restart round',
+      '',
+      'Weapons',
+      'Basic Shell: balanced standard shot',
+      'Heavy Mortar: slower shell, bigger blast',
+      'Split Shot: breaks into 3 bomblets mid-air',
+      '',
+      'Tips',
+      'Watch the wind before every shot.',
+      'Use craters to create direct hits next turn.',
+      'Move only enough to improve the angle.',
+      '',
+      'Modes',
+      `${this.getModeLabel()} active`,
+      'Press M on the start or round-over screen to switch mode.'
+    ].join('\n');
+  }
+
+  showHelpOverlay() {
+    this.showOverlay({
+      type: 'help',
+      previousOverlay: this.overlayState ? { ...this.overlayState } : null,
+      title: 'Help',
+      body: this.buildHelpBody(),
+      scoreboard: this.buildHelpSidebar(),
+      prompt: 'Press Esc, H, Space or Enter to close help'
+    });
+  }
+
+  startCpuTurn() {
+    const player = this.getActivePlayer();
+    const target = this.players.find((tank, index) => index !== this.turnIndex && tank.isAlive());
+    if (!player || !target) {
+      return;
+    }
+
+    const bias = Phaser.Math.Clamp((target.x - player.x) * 0.1, -26, 26);
+    const desiredMove = Phaser.Math.Clamp(
+      bias + Phaser.Math.Between(-12, 12),
+      -this.remainingMove * 0.8,
+      this.remainingMove * 0.8
+    );
+
+    this.cpuState = {
+      stage: 'move',
+      targetX: Phaser.Math.Clamp(player.x + desiredMove, 48, GAME_WIDTH - 48),
+      thinkTimer: 0.35,
+      fireTimer: 0.22,
+      plan: null
+    };
+  }
+
+  getFireOriginForPitch(player, pitch) {
+    const pitchRad = Phaser.Math.DegToRad(pitch);
+    const worldAngle = player.facing === 1 ? -pitchRad : -Math.PI + pitchRad;
+
+    return {
+      x: player.x + Math.cos(worldAngle) * (BARREL_LENGTH - 2),
+      y: player.y - 3 + Math.sin(worldAngle) * (BARREL_LENGTH - 2),
+      angle: worldAngle
+    };
+  }
+
+  simulateWeaponImpact(player, target, pitch, power, weapon) {
+    const launch = this.getFireOriginForPitch(player, pitch);
+    let x = launch.x;
+    let y = launch.y;
+    let vx = Math.cos(launch.angle) * power * weapon.speedFactor;
+    let vy = Math.sin(launch.angle) * power * weapon.speedFactor;
+
+    for (let elapsed = 0; elapsed < 3.8; elapsed += 0.06) {
+      vx += this.wind * weapon.windScale * 0.06;
+      vy += GRAVITY * weapon.gravityScale * 0.06;
+      x += vx * 0.06;
+      y += vy * 0.06;
+
+      if (x < 0 || x > GAME_WIDTH || y > GAME_HEIGHT) {
+        break;
+      }
+
+      if (this.terrain.isSolid(x, y)) {
+        break;
+      }
+
+      if (Phaser.Math.Distance.Between(x, y, target.x, target.y - 2) <= 17 + weapon.projectileRadius) {
+        return { x, y, distance: 0, directHit: true };
+      }
+    }
+
+    const distance = Phaser.Math.Distance.Between(x, y, target.x, target.y - 2);
+    return { x, y, distance, directHit: distance < weapon.blastRadius * 0.4 };
+  }
+
+  computeCpuShotPlan(player, target) {
+    const candidates = [0, 1];
+    const directDistance = Math.abs(target.x - player.x);
+    if (directDistance < 240) {
+      candidates.push(2);
+    }
+
+    let bestPlan = {
+      weaponIndex: 0,
+      pitch: 48,
+      power: 360,
+      score: Number.POSITIVE_INFINITY
+    };
+
+    candidates.forEach((weaponIndex) => {
+      const weapon = getWeapon(weaponIndex);
+      for (let pitch = 18; pitch <= 82; pitch += 4) {
+        for (let power = 220; power <= 520; power += 20) {
+          const result = this.simulateWeaponImpact(player, target, pitch, power, weapon);
+          const selfDistance = Phaser.Math.Distance.Between(result.x, result.y, player.x, player.y);
+          const selfPenalty = selfDistance < weapon.blastRadius + 26 ? 280 : 0;
+          const directBonus = result.directHit ? -120 : 0;
+          const score = result.distance + selfPenalty + directBonus;
+
+          if (score < bestPlan.score) {
+            bestPlan = { weaponIndex, pitch, power, score };
+          }
+        }
+      }
+    });
+
+    return bestPlan;
+  }
+
+  updateCpuTurn(dt) {
+    if (!this.cpuState) {
+      this.startCpuTurn();
+      return;
+    }
+
+    const player = this.getActivePlayer();
+    const target = this.players.find((tank, index) => index !== this.turnIndex && tank.isAlive());
+    if (!player || !target) {
+      this.cpuState = null;
+      return;
+    }
+
+    if (this.cpuState.stage === 'move') {
+      const deltaX = this.cpuState.targetX - player.x;
+      if (Math.abs(deltaX) > 2 && this.remainingMove > 0) {
+        const step = Math.min(Math.abs(deltaX), MOVE_SPEED * 0.7 * dt, this.remainingMove);
+        const direction = Math.sign(deltaX);
+        player.x = Phaser.Math.Clamp(player.x + direction * step, 48, GAME_WIDTH - 48);
+        player.syncToTerrain(this.terrain);
+        this.remainingMove = Math.max(0, this.remainingMove - step);
+        this.activeTankDriving = true;
+        this.stabilityActive = true;
+        this.trySpawnMoveDust(player, direction, 0.18);
+        this.syncHud();
+        return;
+      }
+
+      this.enterAimPhase();
+      this.cpuState.plan = this.computeCpuShotPlan(player, target);
+      this.cpuState.stage = 'aim';
+      return;
+    }
+
+    if (this.cpuState.stage === 'aim') {
+      const plan = this.cpuState.plan;
+      player.setWeaponIndex(plan.weaponIndex);
+      player.setPitch(Phaser.Math.Linear(player.pitch, plan.pitch, Math.min(1, dt * 4)));
+      player.setPower(Phaser.Math.Linear(player.power, plan.power, Math.min(1, dt * 4)));
+      this.markPredictionDirty();
+      this.syncHud();
+
+      if (
+        Math.abs(player.pitch - plan.pitch) < 1 &&
+        Math.abs(player.power - plan.power) < 5
+      ) {
+        this.cpuState.stage = 'fire';
+      }
+      return;
+    }
+
+    if (this.cpuState.stage === 'fire') {
+      this.cpuState.fireTimer -= dt;
+      if (this.cpuState.fireTimer <= 0) {
+        this.fireActiveWeapon();
+        this.cpuState = null;
+      }
+    }
+  }
+
+  update(_time, delta) {
+    const dt = Math.min(delta / 1000, 0.032);
+    this.activeTankDriving = false;
+    this.ambientAccumulator = Math.min(this.ambientAccumulator + dt, this.ambientStep * 3);
+    while (this.ambientAccumulator >= this.ambientStep) {
+      this.updateAmbient(this.ambientStep);
+      this.ambientAccumulator -= this.ambientStep;
+    }
+
+    if (this.overlayActive()) {
+      this.handleOverlayInput();
+      this.updateTankAnimations(dt);
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.inputKeys.h)) {
+      this.showHelpOverlay();
+      return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.inputKeys.r)) {
+      this.startMatch();
+      return;
+    }
+
+    if (this.isCpuControlledPlayer() && !this.resolving && !this.gameOver) {
+      this.updateCpuTurn(dt);
+      if (this.turnPhase === 'aim') {
+        this.drawPrediction();
+      } else {
+        this.clearPrediction();
+      }
+      this.stabilityAccumulator = Math.min(this.stabilityAccumulator + dt, this.stabilityStep * 3);
+      while (this.stabilityAccumulator >= this.stabilityStep) {
+        this.updateTankStability(this.stabilityStep);
+        this.stabilityAccumulator -= this.stabilityStep;
+      }
+      this.updateTankAnimations(dt);
+      this.updateProjectiles(dt);
+      return;
+    }
+
+    if (!this.gameOver && !this.resolving) {
+      this.handlePlayerInput(dt);
+      if (this.turnPhase === 'aim') {
+        this.drawPrediction();
+      } else {
+        this.clearPrediction();
+      }
+    } else {
+      this.clearPrediction();
+    }
+
+    this.stabilityAccumulator = Math.min(this.stabilityAccumulator + dt, this.stabilityStep * 3);
+    while (this.stabilityAccumulator >= this.stabilityStep) {
+      this.updateTankStability(this.stabilityStep);
+      this.stabilityAccumulator -= this.stabilityStep;
+    }
+    this.updateTankAnimations(dt);
+    this.updateProjectiles(dt);
+  }
+
+  handleOverlayInput() {
+    const advance =
+      Phaser.Input.Keyboard.JustDown(this.inputKeys.space) ||
+      Phaser.Input.Keyboard.JustDown(this.inputKeys.enter);
+    const help = Phaser.Input.Keyboard.JustDown(this.inputKeys.h);
+    const modeToggle = Phaser.Input.Keyboard.JustDown(this.inputKeys.m);
+    const closeHelp = help || advance || Phaser.Input.Keyboard.JustDown(this.inputKeys.esc);
+
+    if (!this.overlayState) {
+      return;
+    }
+
+    if (this.overlayState.type !== 'help' && help) {
+      this.showHelpOverlay();
+      return;
+    }
+
+    if (
+      modeToggle &&
+      (this.overlayState.type === 'start' || this.overlayState.type === 'gameover')
+    ) {
+      this.toggleMode();
+      if (this.overlayState.type === 'start') {
+        this.showStartOverlay();
+      } else {
+        this.showGameOverOverlay();
+      }
+      this.syncHud();
+      return;
+    }
+
+    if (this.overlayState.type === 'help' && closeHelp) {
+      const previousOverlay = this.overlayState.previousOverlay;
+      if (previousOverlay) {
+        this.showOverlay(previousOverlay);
+      } else {
+        this.clearOverlay();
+        this.syncHud();
+      }
+      return;
+    }
+
+    if (this.overlayState.type === 'start' && advance) {
+      this.clearOverlay();
+      this.presentTurnOverlay();
+      return;
+    }
+
+    if (this.overlayState.type === 'turn' && !this.isCpuControlledPlayer() && advance) {
+      this.clearOverlay();
+      this.syncHud();
+      return;
+    }
+
+    if (
+      this.overlayState.type === 'gameover' &&
+      (advance || Phaser.Input.Keyboard.JustDown(this.inputKeys.r))
+    ) {
+      this.startMatch();
+    }
+  }
+
+  handlePlayerInput(dt) {
+    const player = this.getActivePlayer();
+    let hudDirty = false;
+
+    if (this.turnPhase === 'move') {
+      const moveAxis =
+        (this.inputKeys.right.isDown ? 1 : 0) - (this.inputKeys.left.isDown ? 1 : 0);
+      if (moveAxis !== 0 && this.remainingMove > 0) {
+        const amount = Math.min(this.remainingMove, MOVE_SPEED * dt);
+        const nextX = Phaser.Math.Clamp(player.x + moveAxis * amount, 48, GAME_WIDTH - 48);
+        const traveled = Math.abs(nextX - player.x);
+        if (traveled > 0) {
+          player.x = nextX;
+          player.syncToTerrain(this.terrain);
+          this.remainingMove = Math.max(0, this.remainingMove - traveled);
+          this.stabilityActive = true;
+          this.activeTankDriving = true;
+          this.trySpawnMoveDust(player, moveAxis);
+          hudDirty = true;
+        }
+      }
+
+      if (this.remainingMove <= 0) {
+        this.enterAimPhase();
+        return;
+      }
+
+      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.space)) {
+        this.enterAimPhase();
+        return;
+      }
+    } else {
+      const pitchAxis =
+        (this.inputKeys.up.isDown ? 1 : 0) - (this.inputKeys.down.isDown ? 1 : 0);
+      if (pitchAxis !== 0) {
+        player.setPitch(player.pitch + pitchAxis * AIM_SPEED * dt);
+        this.markPredictionDirty();
+        hudDirty = true;
+      }
+
+      const powerAxis =
+        (this.inputKeys.d.isDown || this.inputKeys.l.isDown ? 1 : 0) -
+        (this.inputKeys.a.isDown || this.inputKeys.j.isDown ? 1 : 0);
+      if (powerAxis !== 0) {
+        player.setPower(player.power + powerAxis * POWER_STEP * dt);
+        this.markPredictionDirty();
+        hudDirty = true;
+      }
+
+      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.q)) {
+        player.setWeaponIndex(player.weaponIndex - 1);
+        this.markPredictionDirty();
+        hudDirty = true;
+      }
+
+      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.e)) {
+        player.setWeaponIndex(player.weaponIndex + 1);
+        this.markPredictionDirty();
+        hudDirty = true;
+      }
+
+      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.space)) {
+        this.fireActiveWeapon();
+        hudDirty = true;
+      }
+    }
+
+    if (hudDirty) {
+      this.syncHud();
+    }
+  }
+
+  trySpawnMoveDust(player, direction, alpha = 0.28) {
+    if (this.time.now < this.moveDustCooldown) {
+      return;
+    }
+
+    this.moveDustCooldown = this.time.now + 75;
+    const dust = this.add.circle(
+      player.x - direction * 12,
+      player.y + 12,
+      Phaser.Math.Between(4, 7),
+      0xd9c18d,
+      alpha
+    );
+    dust.setDepth(28);
+
+    this.tweens.add({
+      targets: dust,
+      x: dust.x - direction * Phaser.Math.Between(14, 28),
+      y: dust.y - Phaser.Math.Between(8, 16),
+      scale: Phaser.Math.FloatBetween(1.4, 1.9),
+      alpha: 0,
+      duration: Phaser.Math.Between(260, 360),
+      ease: 'Sine.Out',
+      onComplete: () => dust.destroy()
+    });
+  }
+
+  enterAimPhase() {
+    if (this.turnPhase === 'aim' || this.gameOver || this.resolving) {
+      return;
+    }
+
+    this.turnPhase = 'aim';
+    this.markPredictionDirty();
+    this.showTurnBanner(`${this.getActivePlayer().name} aim phase`);
+    this.syncHud();
+  }
+
+  fireActiveWeapon() {
+    if (this.resolving || this.gameOver) {
+      return;
+    }
+
+    const player = this.getActivePlayer();
+    const weapon = getWeapon(player.weaponIndex);
+    const origin = player.getFireOrigin();
+    const angle = player.getWorldAngle();
+    const speed = player.power * weapon.speedFactor;
+    this.focusCameraOn(origin.x, origin.y, 180, 1.03);
+
+    this.roundStats[player.name].shots += 1;
+    this.audioManager.playShot(weapon);
+    this.playWeaponMuzzle(origin.x, origin.y, weapon);
+    this.spawnProjectile({
+      x: origin.x,
+      y: origin.y,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      color: weapon.color,
+      radius: weapon.projectileRadius,
+      weapon,
+      owner: player,
+      age: 0
+    });
+
+    this.tweens.add({
+      targets: player,
+      x: player.x - Math.cos(angle) * 4,
+      y: player.y - Math.sin(angle) * 3,
+      yoyo: true,
+      duration: 80
+    });
+
+    this.resolving = true;
+    this.clearPrediction();
+  }
+
+  spawnProjectile(config) {
+    const sprite = this.add.circle(config.x, config.y, config.radius, config.color, 1).setDepth(50);
+    sprite.setStrokeStyle(2, 0xffffff, 0.35);
+    const trail = this.add.graphics().setDepth(49);
+
+    this.projectiles.push({
+      ...config,
+      sprite,
+      trail,
+      trailPoints: []
+    });
+  }
+
+  playWeaponMuzzle(x, y, weapon) {
+    this.muzzleFlash.setPosition(x, y);
+    this.muzzleFlash.setFillStyle(weapon.muzzleColor, 1);
+    this.muzzleFlash.setScale(1);
+    this.muzzleFlash.setAlpha(0.92);
+    this.tweens.add({
+      targets: this.muzzleFlash,
+      scale: weapon.flashScale,
+      alpha: 0,
+      duration: 140 + weapon.burstCount * 4
+    });
+
+    for (let i = 0; i < Math.ceil(weapon.burstCount / 2); i += 1) {
+      const spark = this.add.circle(
+        x + Phaser.Math.Between(-4, 4),
+        y + Phaser.Math.Between(-4, 4),
+        Phaser.Math.Between(2, 4),
+        weapon.muzzleColor,
+        0.8
+      );
+      spark.setDepth(56);
+      this.tweens.add({
+        targets: spark,
+        x: spark.x + Phaser.Math.Between(-18, 18),
+        y: spark.y + Phaser.Math.Between(-14, 14),
+        alpha: 0,
+        scale: Phaser.Math.FloatBetween(1.3, 2.1),
+        duration: Phaser.Math.Between(120, 180),
+        onComplete: () => spark.destroy()
+      });
+    }
+  }
+
+  updateProjectiles(dt) {
+    if (!this.projectiles.length) {
+      return;
+    }
+
+    for (let i = this.projectiles.length - 1; i >= 0; i -= 1) {
+      const projectile = this.projectiles[i];
+      const previousX = projectile.x;
+      const previousY = projectile.y;
+
+      projectile.age += dt;
+      projectile.vx += this.wind * projectile.weapon.windScale * dt;
+      projectile.vy += GRAVITY * projectile.weapon.gravityScale * dt;
+      projectile.x += projectile.vx * dt;
+      projectile.y += projectile.vy * dt;
+      projectile.trailPoints.push({ x: projectile.x, y: projectile.y, age: projectile.age });
+      if (projectile.trailPoints.length > projectile.weapon.trailLength) {
+        projectile.trailPoints.shift();
+      }
+      this.drawProjectileTrail(projectile);
+
+      if (projectile.weapon.id === 'split' && !projectile.didSplit && projectile.age >= projectile.weapon.splitDelay) {
+        this.splitProjectile(projectile, i);
+        continue;
+      }
+
+      const collision = this.traceProjectile(previousX, previousY, projectile.x, projectile.y, projectile);
+      projectile.sprite.setPosition(projectile.x, projectile.y);
+
+      if (collision) {
+        this.explode(collision.x, collision.y, projectile.weapon, projectile.owner);
+        projectile.trail.destroy();
+        projectile.sprite.destroy();
+        this.projectiles.splice(i, 1);
+        continue;
+      }
+
+      if (projectile.x < -40 || projectile.x > GAME_WIDTH + 40 || projectile.y > GAME_HEIGHT + 60) {
+        projectile.trail.destroy();
+        projectile.sprite.destroy();
+        this.projectiles.splice(i, 1);
+      }
+    }
+
+    if (this.resolving && !this.projectiles.length && !this.turnPending && !this.gameOver) {
+      this.turnPending = true;
+      this.time.delayedCall(650, () => this.advanceTurn());
+    }
+  }
+
+  drawProjectileTrail(projectile) {
+    const { trailPoints, trail } = projectile;
+    trail.clear();
+    if (trailPoints.length < 2) {
+      return;
+    }
+
+    for (let i = 1; i < trailPoints.length; i += 1) {
+      const from = trailPoints[i - 1];
+      const to = trailPoints[i];
+      const alpha = i / trailPoints.length;
+      trail.lineStyle(
+        projectile.weapon.trailWidth * alpha + 0.6,
+        projectile.color,
+        alpha * projectile.weapon.trailAlpha
+      );
+      trail.beginPath();
+      trail.moveTo(from.x, from.y);
+      trail.lineTo(to.x, to.y);
+      trail.strokePath();
+
+      if (projectile.weapon.id.startsWith('split') && i === trailPoints.length - 1) {
+        trail.fillStyle(projectile.color, alpha * 0.2);
+        trail.fillCircle(to.x, to.y, 3 + alpha * 2);
+      }
+    }
+  }
+
+  splitProjectile(projectile, index) {
+    projectile.didSplit = true;
+
+    for (let step = 0; step < projectile.weapon.childCount; step += 1) {
+      const spreadIndex = step - Math.floor(projectile.weapon.childCount / 2);
+      const angleOffset = spreadIndex * projectile.weapon.childSpread;
+      const baseAngle = Math.atan2(projectile.vy, projectile.vx) + angleOffset;
+      const speed =
+        Math.hypot(projectile.vx, projectile.vy) * projectile.weapon.childSpeedFactor;
+
+      this.spawnProjectile({
+        x: projectile.x,
+        y: projectile.y,
+        vx: Math.cos(baseAngle) * speed,
+        vy: Math.sin(baseAngle) * speed + projectile.weapon.childLift,
+        color: projectile.weapon.color,
+        radius: projectile.weapon.projectileRadius,
+        weapon: {
+          ...projectile.weapon,
+          id: `${projectile.weapon.id}-child`,
+          splitDelay: null
+        },
+        owner: projectile.owner,
+        age: 0
+      });
+    }
+
+    this.particles.explode(16, projectile.x, projectile.y);
+    projectile.trail.destroy();
+    projectile.sprite.destroy();
+    this.projectiles.splice(index, 1);
+  }
+
+  traceProjectile(x0, y0, x1, y1, projectile) {
+    const distance = Phaser.Math.Distance.Between(x0, y0, x1, y1);
+    const steps = Math.max(2, Math.ceil(distance / 4));
+
+    for (let step = 1; step <= steps; step += 1) {
+      const t = step / steps;
+      const x = Phaser.Math.Linear(x0, x1, t);
+      const y = Phaser.Math.Linear(y0, y1, t);
+
+      if (this.terrain.isSolid(x, y)) {
+        return { x, y };
+      }
+
+      for (const tank of this.players) {
+        if (!tank.isAlive()) {
+          continue;
+        }
+        if (Phaser.Math.Distance.Between(x, y, tank.x, tank.y - 2) <= 17 + projectile.radius) {
+          return { x, y };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  getTerrainCraterPoint(x, y, radius) {
+    const surfaceY = this.terrain.getSurfaceY(x);
+
+    // Bias the crater center slightly into the ground so terrain removal remains visible
+    // even when the collision happened on a tank body just above the surface.
+    const minCraterY = surfaceY + radius * 0.22;
+    const maxCraterY = surfaceY + radius * 0.48;
+
+    return {
+      x,
+      y: Phaser.Math.Clamp(Math.max(y, minCraterY), minCraterY, maxCraterY)
+    };
+  }
+
+  explode(x, y, weapon, owner = null) {
+    const crater = this.getTerrainCraterPoint(x, y, weapon.blastRadius);
+    this.focusCameraOn(x, y, 220, 1.07);
+    this.audioManager.playExplosion(weapon);
+    this.cameras.main.shake(180, 0.004 + weapon.blastRadius / 40000);
+    this.terrain.deformCircle(crater.x, crater.y, weapon.blastRadius);
+    this.stabilityActive = true;
+    this.markPredictionDirty();
+    this.spawnCraterDebris(crater.x, crater.y, weapon.blastRadius);
+
+    const ring = this.add.circle(x, y, 8, weapon.explosionCore, 0.85).setDepth(58);
+    ring.setStrokeStyle(3, weapon.explosionRing, 0.9);
+    this.tweens.add({
+      targets: ring,
+      radius: weapon.blastRadius * 1.4,
+      alpha: 0,
+      duration: 260,
+      onComplete: () => ring.destroy()
+    });
+
+    const bloom = this.add.circle(x, y, 12, weapon.explosionRing, 0.18).setDepth(57);
+    this.tweens.add({
+      targets: bloom,
+      radius: weapon.blastRadius * 1.9,
+      alpha: 0,
+      duration: 320,
+      ease: 'Sine.Out',
+      onComplete: () => bloom.destroy()
+    });
+
+    this.particles.explode(Math.floor(weapon.blastRadius * 0.9), x, y);
+
+    for (const tank of this.players) {
+      tank.syncToTerrain(this.terrain);
+      const distance = Phaser.Math.Distance.Between(x, y, tank.x, tank.y - 2);
+      const maxDistance = weapon.blastRadius + 28;
+      if (distance <= maxDistance) {
+        const damage = Math.round(weapon.damage * (1 - distance / maxDistance));
+        tank.applyDamage(damage);
+        this.spawnDamageText(tank.x, tank.y - 26, damage, weapon.damageText);
+        this.audioManager.playHit(damage);
+        if (owner && damage > 0) {
+          const ownerStats = this.roundStats[owner.name];
+          ownerStats.hits += 1;
+          ownerStats.damageDealt += damage;
+          ownerStats.bestHit = Math.max(ownerStats.bestHit, damage);
+          if (distance < 16) {
+            ownerStats.directHits += 1;
+          }
+        }
+      }
+    }
+
+    this.checkWinState();
+    this.renderWindRibbon();
+    this.syncHud();
+    if (!this.gameOver) {
+      this.time.delayedCall(260, () => this.resetCameraFocus());
+    }
+  }
+
+  spawnCraterDebris(x, y, radius) {
+    const count = Phaser.Math.Clamp(Math.round(radius / 4), 8, 18);
+    for (let i = 0; i < count; i += 1) {
+      const chip = this.add.rectangle(
+        x + Phaser.Math.Between(-radius * 0.4, radius * 0.4),
+        y - Phaser.Math.Between(2, 10),
+        Phaser.Math.Between(3, 8),
+        Phaser.Math.Between(2, 5),
+        Phaser.Math.RND.pick([0xd7e9aa, 0x91aa6e, 0x6f8250, 0x8a6a4b]),
+        0.9
+      );
+      chip.setDepth(57);
+      chip.rotation = Phaser.Math.FloatBetween(-0.4, 0.4);
+
+      this.tweens.add({
+        targets: chip,
+        x: chip.x + Phaser.Math.Between(-radius, radius),
+        y: chip.y + Phaser.Math.Between(-18, 14),
+        angle: Phaser.Math.Between(-120, 120),
+        alpha: 0,
+        duration: Phaser.Math.Between(320, 520),
+        ease: 'Quad.Out',
+        onComplete: () => chip.destroy()
+      });
+    }
+  }
+
+  spawnDamageText(x, y, damage, color) {
+    if (damage <= 0) {
+      return;
+    }
+
+    const text = this.add
+      .text(x, y, `-${damage}`, {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '22px',
+        fontStyle: 'bold',
+        color
+      })
+      .setOrigin(0.5)
+      .setDepth(70);
+
+    this.tweens.add({
+      targets: text,
+      y: y - 26,
+      alpha: 0,
+      scale: 1.15,
+      duration: 520,
+      ease: 'Cubic.Out',
+      onComplete: () => text.destroy()
+    });
+  }
+
+  checkWinState() {
+    const living = this.players.filter((tank) => tank.isAlive());
+    if (living.length > 1) {
+      return;
+    }
+
+    this.gameOver = true;
+    this.resolving = false;
+    this.turnPending = false;
+    this.winner = living[0] ?? null;
+    if (this.winner) {
+      this.highscores = this.scoreStore.recordWin(this.winner.name);
+    }
+    const banner = this.winner ? `${this.winner.name} wins` : 'Draw';
+    this.showTurnBanner(banner);
+    this.showGameOverOverlay();
+    this.syncHud();
+  }
+
+  advanceTurn() {
+    this.turnPending = false;
+    if (this.gameOver) {
+      return;
+    }
+
+    this.turnIndex = (this.turnIndex + 1) % this.players.length;
+    if (!this.getActivePlayer().isAlive()) {
+      this.turnIndex = (this.turnIndex + 1) % this.players.length;
+    }
+
+    this.remainingMove = MOVE_PER_TURN;
+    this.turnPhase = 'move';
+    this.wind = this.rollWind();
+    this.resolving = false;
+    this.stabilityActive = true;
+    this.cpuState = null;
+
+    this.players.forEach((tank) => tank.syncToTerrain(this.terrain));
+    this.positionWindsock();
+    this.audioManager.setWind(this.wind);
+    this.renderWindRibbon();
+    this.markPredictionDirty();
+    this.presentTurnOverlay();
+  }
+
+  drawPrediction() {
+    if (!this.predictionDirty) {
+      return;
+    }
+
+    const player = this.getActivePlayer();
+    const weapon = getWeapon(player.weaponIndex);
+    const origin = player.getFireOrigin();
+    const angle = player.getWorldAngle();
+    let x = origin.x;
+    let y = origin.y;
+    let vx = Math.cos(angle) * player.power * weapon.speedFactor;
+    let vy = Math.sin(angle) * player.power * weapon.speedFactor;
+    const direction = Math.abs(this.wind) < 4 ? 0 : Math.sign(this.wind);
+    const windColor = direction === 0 ? 0xf4f1df : direction > 0 ? 0xf2b84b : 0x7fe7dc;
+    const alpha = 0.52 + Math.min(0.36, Math.abs(this.wind) / 140);
+
+    this.prediction.clear();
+    this.prediction.lineStyle(2, windColor, alpha);
+
+    let started = false;
+    const step = 0.065;
+    for (let elapsed = 0; elapsed < weapon.predictionTime; elapsed += step) {
+      vx += this.wind * weapon.windScale * step;
+      vy += GRAVITY * weapon.gravityScale * step;
+      x += vx * step;
+      y += vy * step;
+
+      if (x < 0 || x > GAME_WIDTH || y > GAME_HEIGHT) {
+        break;
+      }
+
+      if (this.terrain.isSolid(x, y)) {
+        break;
+      }
+
+      if (!started) {
+        this.prediction.beginPath();
+        this.prediction.moveTo(x, y);
+        started = true;
+      } else {
+        this.prediction.lineTo(x, y);
+      }
+
+      if (started && direction !== 0 && Math.floor(elapsed / (step * 3)) !== Math.floor((elapsed - step) / (step * 3))) {
+        const tailX = x - direction * (6 + Math.abs(this.wind) / 12);
+        this.prediction.moveTo(tailX, y - 3);
+        this.prediction.lineTo(x, y);
+        this.prediction.lineTo(tailX, y + 3);
+      }
+    }
+
+    this.prediction.strokePath();
+    this.predictionVisible = started;
+    this.predictionDirty = false;
+  }
+
+  renderWindRibbon() {
+    this.windRibbon.clear();
+    const panelX = GAME_WIDTH * 0.5 - 184;
+    const panelY = 24;
+    const panelWidth = 368;
+    const panelHeight = 48;
+    const centerX = GAME_WIDTH * 0.5;
+    const y = panelY + panelHeight * 0.5;
+    const magnitude = Math.abs(this.wind);
+    const normalized = Phaser.Math.Clamp(magnitude / WIND_LIMIT, 0, 1);
+    const size = Phaser.Math.Clamp(normalized * 124, 0, 124);
+    const direction = Math.abs(this.wind) < 4 ? 0 : Math.sign(this.wind);
+    const color = direction >= 0 ? 0xf2b84b : 0x7fe7dc;
+    const chevrons = Math.max(1, Math.ceil(normalized * 5));
+    const barbs = Math.ceil(normalized * 4);
+
+    this.windRibbon.fillStyle(0x08121a, 0.72);
+    this.windRibbon.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    this.windRibbon.lineStyle(2, 0xffffff, 0.1);
+    this.windRibbon.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+
+    this.windRibbon.lineStyle(2, 0xffffff, 0.18);
+    this.windRibbon.beginPath();
+    this.windRibbon.moveTo(centerX, panelY + 9);
+    this.windRibbon.lineTo(centerX, panelY + panelHeight - 9);
+    this.windRibbon.strokePath();
+
+    this.windRibbon.lineStyle(2, 0xffffff, 0.08);
+    this.windRibbon.beginPath();
+    this.windRibbon.moveTo(panelX + 22, y);
+    this.windRibbon.lineTo(panelX + panelWidth - 22, y);
+    this.windRibbon.strokePath();
+
+    if (direction === 0) {
+      this.windRibbon.fillStyle(0xf4f1df, 0.92);
+      this.windRibbon.fillCircle(centerX, y, 4);
+      return;
+    }
+
+    this.windRibbon.lineStyle(5, color, 0.98);
+    this.windRibbon.beginPath();
+    this.windRibbon.moveTo(centerX, y);
+    this.windRibbon.lineTo(centerX + direction * size, y);
+    this.windRibbon.strokePath();
+
+    this.windRibbon.fillStyle(color, 0.98);
+    this.windRibbon.beginPath();
+    this.windRibbon.moveTo(centerX + direction * size, y);
+    this.windRibbon.lineTo(centerX + direction * (size - 18), y - 9);
+    this.windRibbon.lineTo(centerX + direction * (size - 18), y + 9);
+    this.windRibbon.closePath();
+    this.windRibbon.fillPath();
+
+    for (let i = 0; i < chevrons; i += 1) {
+      const offset = 26 + i * 20;
+      const baseX = centerX + direction * offset;
+      this.windRibbon.lineStyle(3, color, 0.65 - i * 0.08);
+      this.windRibbon.beginPath();
+      this.windRibbon.moveTo(baseX, y - 8);
+      this.windRibbon.lineTo(baseX + direction * 9, y);
+      this.windRibbon.lineTo(baseX, y + 8);
+      this.windRibbon.strokePath();
+    }
+
+    const barbBaseX = panelX + (direction > 0 ? panelWidth - 42 : 42);
+    const barbTopY = panelY + 12;
+    const barbBottomY = panelY + panelHeight - 12;
+    this.windRibbon.lineStyle(3, color, 0.95);
+    this.windRibbon.beginPath();
+    this.windRibbon.moveTo(barbBaseX, barbBottomY);
+    this.windRibbon.lineTo(barbBaseX, barbTopY);
+    this.windRibbon.strokePath();
+
+    for (let i = 0; i < barbs; i += 1) {
+      const barbY = barbTopY + 4 + i * 8;
+      this.windRibbon.beginPath();
+      this.windRibbon.moveTo(barbBaseX, barbY);
+      this.windRibbon.lineTo(barbBaseX - direction * 14, barbY + 6);
+      this.windRibbon.strokePath();
+    }
+  }
+
+  showTurnBanner(text) {
+    this.events.emit('turn:banner', text);
+  }
+
+  syncHud() {
+    this.events.emit('hud:update', this.getHudState());
+  }
+
+  getHudState() {
+    return {
+      activePlayerIndex: this.turnIndex,
+      activePlayerName: this.getActivePlayer()?.name ?? '',
+      phase: this.turnPhase,
+      objective: OBJECTIVE_TEXT,
+      mode: this.getModeLabel(),
+      wind: this.wind,
+      windDirection: this.getWindDirectionLabel(),
+      windStrength: this.getWindStrengthLabel(),
+      windEffect: this.getWindEffectText(),
+      remainingMove: this.remainingMove,
+      players: this.players.map((player) => ({
+        name: player.name,
+        hp: player.hp,
+        pitch: Math.round(player.pitch),
+        power: Math.round(player.power),
+        weapon: getWeapon(player.weaponIndex).label,
+        wins: this.highscores[player.name] ?? 0
+      })),
+      gameOver: this.gameOver,
+      winner: this.winner?.name ?? null
+    };
+  }
+
+  clearProjectiles() {
+    if (!this.projectiles) {
+      return;
+    }
+
+    this.projectiles.forEach((projectile) => {
+      projectile.trail?.destroy();
+      projectile.sprite.destroy();
+    });
+    this.projectiles = [];
+  }
+}

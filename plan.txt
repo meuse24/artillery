@@ -1,0 +1,156 @@
+You are building a polished browser artillery game from scratch.
+
+Tech stack and constraints:
+- Use JavaScript, not TypeScript.
+- Use Phaser 3 for the game.
+- Use Vite for dev/build.
+- Keep the project lightweight and local-first.
+- Target desktop browsers first, but do not hardcode assumptions that break on mobile-sized screens.
+- Architecture must stay simple, readable, and modular.
+- No backend. No database. No login. No ads. No telemetry.
+- Use only dependencies that are genuinely useful. Avoid dependency bloat.
+- Prioritize clean gameplay feel over feature sprawl.
+
+Project goal:
+Create a stylish, replayable 2D artillery game with turn-based combat, deformable terrain, satisfying shooting physics, wind, weapon variety, juice, and a strong “one more round” feel.
+
+Game fantasy:
+A modern artillery game inspired by classics like Worms / Scorched Earth, but with a cleaner minimalist presentation:
+- Two teams or two tanks on a destructible landscape
+- Aim with angle + power
+- Wind affects trajectory
+- Projectiles follow visible ballistic arcs
+- Terrain deformation matters tactically
+- Game should feel crisp, readable, and fun within the first 30 seconds
+
+Non-negotiable gameplay features:
+1. Core loop
+- Turn-based gameplay for 2 local players on the same keyboard
+- Each turn:
+  - active player can move a little
+  - adjust turret angle
+  - adjust shot power
+  - see wind indicator
+  - fire one weapon
+  - projectile resolves
+  - explosion damages players and terrain
+  - turn switches when action is complete
+
+2. Physics / feel
+- Arc-based projectile motion with gravity
+- Wind affecting horizontal drift
+- Terrain collision for projectiles
+- Explosion radius damage with distance falloff
+- Terrain deformation by subtracting circular blast craters
+- Tanks should rest correctly on terrain after deformation
+- Camera shake, muzzle flash, explosion effect, impact sound placeholder hooks
+
+3. Weapons
+Implement at least 3 weapons:
+- Basic Shell: standard explosive projectile
+- Heavy Mortar: heavier arc, larger explosion, lower speed
+- Split Shot: splits mid-air into 3 smaller bombs
+Each weapon must feel mechanically distinct.
+
+4. Win state
+- HP for each tank/player
+- Match ends when one side is destroyed
+- Restart match flow
+- Random new map generation on restart
+
+5. Map / terrain
+- Procedurally generate a hilly terrain silhouette
+- Render terrain clearly
+- Support collision sampling against terrain
+- Support crater deformation
+- Spawn tanks in valid positions on terrain
+
+6. UX / presentation
+- Clean HUD showing:
+  - current player
+  - health
+  - selected weapon
+  - power
+  - wind
+- Strong readability
+- Minimal but attractive visual style
+- Add juice: tweening, recoil, particles, small camera reactions, turn banners
+- Include placeholder audio hooks or minimal generated placeholders if practical
+- Add a short controls hint on screen
+
+Controls:
+- Left / Right: move tank
+- Up / Down: adjust turret angle
+- A / D or J / L: adjust power
+- Q / E: cycle weapons
+- Space: fire
+- R: restart match
+
+Technical requirements:
+- Use a clean Phaser scene structure, such as Boot / Game / UI or similar if useful.
+- Separate gameplay logic into modules where it improves clarity:
+  - terrain generation / deformation
+  - projectile simulation
+  - tank entity
+  - weapon definitions
+  - turn manager
+  - HUD/UI helpers
+- Keep code understandable. Avoid “clever” abstractions.
+- Prefer deterministic, debuggable logic.
+- Document the main modules with concise comments.
+
+Important implementation guidance:
+- The game must actually run locally with npm install and npm run dev.
+- The build must succeed with npm run build.
+- Do not leave pseudocode or TODO stubs for core systems.
+- If a feature is too hard, implement the simplest complete version rather than omitting it.
+- Do not ask for confirmation. Make reasonable decisions and finish the game.
+- Do not spend time on unnecessary polish before the core loop works.
+- After core loop works, improve feel and presentation.
+
+Desired project structure:
+- index.html
+- src/main.js
+- src/game/...
+- src/assets/... only if needed
+- package.json
+- README.md
+
+README requirements:
+- Brief concept
+- Controls
+- How to run
+- How to build
+- Short architecture overview
+
+Acceptance criteria:
+- Fresh install works
+- Local dev server starts
+- A full match can be played start to finish
+- Terrain deforms visibly
+- Wind clearly affects shots
+- Weapons feel different
+- UI communicates state clearly
+- Restart creates a new playable map
+- Build passes without manual intervention
+
+Working style:
+- First inspect the repo and existing files.
+- Then implement the game fully.
+- Validate the app structure and fix any broken imports/config.
+- Run the build and resolve errors.
+- Update README.
+- At the end, provide a concise summary of what was built, controls, architecture, and any tradeoffs.
+
+If the repo is empty:
+1. Scaffold a Vite JavaScript app
+2. Add Phaser 3
+3. Build the full game
+4. Verify build output
+
+Prefer this quality bar:
+- polished jam-game quality
+- not enterprise boilerplate
+- not a prototype that stops halfway
+
+Now build the project.
