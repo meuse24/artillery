@@ -266,6 +266,8 @@ npm run preview
   - kapselt Keyboard/Pointer/Wheel-Input inkl. sauberem `bind()`/`destroy()`
 - `src/game/systems/OverlayStateSystem.js`
   - kapselt Overlay-State-Machine und Overlay-Textaufbau (Start/Turn/Help/GameOver)
+- `src/game/systems/VisualFxPool.js`
+  - pooled kurzlebige VFX-Objekte (Callouts, Damage-Text, Debris, Impact-Shards) gegen GC-Spikes
 - `src/game/ui/MobileControls.js`
   - entkoppelt mobile HUD-Buttons (Weapon/Help) von der UIScene
 - `src/game/ui/OrientationGuard.js`
@@ -304,6 +306,10 @@ npm run preview
   - Touch-Buttons aus `UIScene` in `MobileControls` extrahiert
   - Orientation-Handling in `OrientationGuard` extrahiert
   - `UIScene` hat nun zentrale UI-Cleanup-Hooks (`shutdown`/`destroy`)
+- `Refactor Phase 4` abgeschlossen (Performance):
+  - `VisualFxPool` eingefuehrt fuer haeufige, kurzlebige VFX-Objekte
+  - `GameScene` nutzt Pooling fuer Damage-Text, Impact-Callouts, Debris und Impact-Shards
+  - reduziert create/destroy-Spitzen in Explosion-lastigen Spielsituationen
 
 ## Troubleshooting
 

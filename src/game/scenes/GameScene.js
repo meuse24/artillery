@@ -27,6 +27,7 @@ import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
 import { InputController } from '../systems/InputController.js';
+import { VisualFxPool } from '../systems/VisualFxPool.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
@@ -72,6 +73,7 @@ export class GameScene extends Phaser.Scene {
       eventBus: this.arcadeEvents
     });
     this.overlaySystem = new OverlayStateSystem(this, { objectiveText: OBJECTIVE_TEXT });
+    this.fxPool = new VisualFxPool(this);
     this.installArcadeFeedback();
   }
 
@@ -195,6 +197,10 @@ export class GameScene extends Phaser.Scene {
     if (this.arcadeEvents) {
       this.arcadeEvents.destroy();
       this.arcadeEvents = null;
+    }
+    if (this.fxPool) {
+      this.fxPool.destroy();
+      this.fxPool = null;
     }
     this.overlaySystem = null;
   }
@@ -1824,16 +1830,15 @@ export class GameScene extends Phaser.Scene {
 
     for (let i = 0; i < 8; i += 1) {
       const angle = (Math.PI * 2 * i) / 8 + Phaser.Math.FloatBetween(-0.24, 0.24);
-      const shard = this.add.rectangle(
+      const shard = this.fxPool?.acquireImpactShard()
+        ?? this.add.rectangle(0, 0, 4, 2, 0xffffff, 1).setDepth(58);
+      shard.setPosition(
         x + Math.cos(angle) * 8,
-        y + Math.sin(angle) * 8,
-        Phaser.Math.Between(10, 18),
-        Phaser.Math.Between(2, 4),
-        Phaser.Math.RND.pick([weapon.explosionCore, weapon.explosionRing, 0xfff1bf]),
-        0.86
+        y + Math.sin(angle) * 8
       );
+      shard.setSize(Phaser.Math.Between(10, 18), Phaser.Math.Between(2, 4));
+      shard.setFillStyle(Phaser.Math.RND.pick([weapon.explosionCore, weapon.explosionRing, 0xfff1bf]), 0.86);
       shard.rotation = angle;
-      shard.setDepth(58);
       shard.setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: shard,
@@ -1843,22 +1848,38 @@ export class GameScene extends Phaser.Scene {
         scaleX: 0.4,
         duration: Phaser.Math.Between(170, 240),
         ease: 'Cubic.Out',
-        onComplete: () => shard.destroy()
+        onComplete: () => this.releaseFxObject(shard)
       });
     }
   }
 
+  releaseFxObject(gameObject) {
+    if (this.fxPool) {
+      this.fxPool.release(gameObject);
+      return;
+    }
+    gameObject.destroy();
+  }
+
   spawnImpactCallout(x, y, label, color) {
-    const callout = this.add
-      .text(x, y, label, {
+    const callout = this.fxPool?.acquireImpactCallout()
+      ?? this.add.text(0, 0, '', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '28px',
         fontStyle: 'bold',
         color
       })
-      .setOrigin(0.5)
-      .setDepth(74)
-      .setStroke('#1a1208', 5);
+        .setOrigin(0.5)
+        .setDepth(74);
+    callout.setPosition(x, y);
+    callout.setText(label);
+    callout.setStyle({
+      fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+      fontSize: '28px',
+      fontStyle: 'bold',
+      color
+    });
+    callout.setStroke('#1a1208', 5);
     callout.setShadow(0, 3, '#000000', 8, true, true);
     this.tweens.add({
       targets: callout,
@@ -1867,22 +1888,21 @@ export class GameScene extends Phaser.Scene {
       scale: 1.15,
       duration: 520,
       ease: 'Back.Out',
-      onComplete: () => callout.destroy()
+      onComplete: () => this.releaseFxObject(callout)
     });
   }
 
   spawnCraterDebris(x, y, radius) {
     const count = Phaser.Math.Clamp(Math.round(radius / 4), 8, 18);
     for (let i = 0; i < count; i += 1) {
-      const chip = this.add.rectangle(
+      const chip = this.fxPool?.acquireDebrisChip()
+        ?? this.add.rectangle(0, 0, 4, 2, 0xffffff, 1).setDepth(57);
+      chip.setPosition(
         x + Phaser.Math.Between(-radius * 0.4, radius * 0.4),
-        y - Phaser.Math.Between(2, 10),
-        Phaser.Math.Between(3, 8),
-        Phaser.Math.Between(2, 5),
-        Phaser.Math.RND.pick([0xd7e9aa, 0x91aa6e, 0x6f8250, 0x8a6a4b]),
-        0.9
+        y - Phaser.Math.Between(2, 10)
       );
-      chip.setDepth(57);
+      chip.setSize(Phaser.Math.Between(3, 8), Phaser.Math.Between(2, 5));
+      chip.setFillStyle(Phaser.Math.RND.pick([0xd7e9aa, 0x91aa6e, 0x6f8250, 0x8a6a4b]), 0.9);
       chip.rotation = Phaser.Math.FloatBetween(-0.4, 0.4);
 
       this.tweens.add({
@@ -1893,7 +1913,7 @@ export class GameScene extends Phaser.Scene {
         alpha: 0,
         duration: Phaser.Math.Between(320, 520),
         ease: 'Quad.Out',
-        onComplete: () => chip.destroy()
+        onComplete: () => this.releaseFxObject(chip)
       });
     }
   }
@@ -1904,16 +1924,24 @@ export class GameScene extends Phaser.Scene {
     }
 
     const bigHit = damage >= 26;
-    const text = this.add
-      .text(x, y, `-${damage}`, {
+    const text = this.fxPool?.acquireDamageText()
+      ?? this.add.text(0, 0, '', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: bigHit ? '28px' : '22px',
         fontStyle: 'bold',
         color
       })
-      .setOrigin(0.5)
-      .setDepth(70)
-      .setStroke('#1a1208', bigHit ? 5 : 3);
+        .setOrigin(0.5)
+        .setDepth(70);
+    text.setPosition(x, y);
+    text.setText(`-${damage}`);
+    text.setStyle({
+      fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+      fontSize: bigHit ? '28px' : '22px',
+      fontStyle: 'bold',
+      color
+    });
+    text.setStroke('#1a1208', bigHit ? 5 : 3);
     text.setShadow(0, 2, '#000000', 6, true, true);
 
     this.tweens.add({
@@ -1923,7 +1951,7 @@ export class GameScene extends Phaser.Scene {
       scale: bigHit ? 1.26 : 1.15,
       duration: bigHit ? 620 : 520,
       ease: bigHit ? 'Back.Out' : 'Cubic.Out',
-      onComplete: () => text.destroy()
+      onComplete: () => this.releaseFxObject(text)
     });
   }
 
