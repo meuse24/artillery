@@ -27,6 +27,7 @@ import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
+import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
 
 const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
 const ROUND_STAT_TEMPLATE = () => ({
@@ -39,12 +40,19 @@ const ROUND_STAT_TEMPLATE = () => ({
 
 export class GameScene extends Phaser.Scene {
   constructor() {
-    super('game');
+    super(SCENE_KEYS.GAME);
   }
 
   create() {
     this.createBackdrop();
+    this.setupCoreSystems();
+    this.setupRuntimeState();
+    this.createFxLayers();
+    this.setupInputHandlers();
+    this.setupSceneLifecycle();
+  }
 
+  setupCoreSystems() {
     this.audioManager = new AudioManager();
     this.scoreStore = new ScoreStore(PLAYER_NAMES);
     this.highscores = this.scoreStore.load();
@@ -62,6 +70,9 @@ export class GameScene extends Phaser.Scene {
       eventBus: this.arcadeEvents
     });
     this.installArcadeFeedback();
+  }
+
+  setupRuntimeState() {
     this.reducedMotion = this.arcadeConfig.accessibility.reducedMotionDefault;
     this.currentMode = 'cpu';
     this.roundStats = this.createRoundStats();
@@ -81,6 +92,12 @@ export class GameScene extends Phaser.Scene {
     this.terrain = new Terrain(this, GAME_WIDTH, GAME_HEIGHT);
     this.weather = new WeatherSystem(this);
     this.projectiles = [];
+    this.mouseMoveTarget = null;
+    this.touchAimState = null;
+    this.mobileFullscreenRequested = false;
+  }
+
+  createFxLayers() {
     // One emitter handles muzzle burst, split burst and explosion sparks.
     this.particles = this.add.particles(0, 0, 'particle-dot', {
       lifespan: 420,
@@ -130,7 +147,9 @@ export class GameScene extends Phaser.Scene {
       .rectangle(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5, GAME_WIDTH, GAME_HEIGHT, 0xffe1a6, 0)
       .setDepth(95);
     this.impactFlash.setBlendMode(Phaser.BlendModes.ADD);
+  }
 
+  setupInputHandlers() {
     this.inputKeys = this.input.keyboard.addKeys({
       left: Phaser.Input.Keyboard.KeyCodes.LEFT,
       right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
@@ -150,11 +169,6 @@ export class GameScene extends Phaser.Scene {
       r: Phaser.Input.Keyboard.KeyCodes.R,
       v: Phaser.Input.Keyboard.KeyCodes.V
     });
-
-    // Mouse / pointer input
-    this.mouseMoveTarget = null;
-    this.touchAimState = null;
-    this.mobileFullscreenRequested = false;
 
     this.input.on('pointermove', (pointer) => {
       if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
@@ -241,9 +255,10 @@ export class GameScene extends Phaser.Scene {
       this.markPredictionDirty();
       this.syncHud();
     });
+  }
 
+  setupSceneLifecycle() {
     this.installAudioUnlock();
-
     this.startMatch({ showTurnOverlay: false });
     this.showStartOverlay();
 
@@ -873,12 +888,12 @@ export class GameScene extends Phaser.Scene {
 
   showOverlay(payload) {
     this.overlayState = payload;
-    this.events.emit('overlay:update', payload);
+    this.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, payload);
   }
 
   clearOverlay() {
     this.overlayState = null;
-    this.events.emit('overlay:update', null);
+    this.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, null);
   }
 
   showStartOverlay() {
@@ -1478,7 +1493,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.turnTimer = Math.max(0, this.turnTimer - dt);
-    this.events.emit('timer:update', this.turnTimer, TURN_TIME_LIMIT);
+    this.events.emit(GAME_SCENE_EVENTS.TIMER_UPDATE, this.turnTimer, TURN_TIME_LIMIT);
 
     if (this.turnTimer <= 0) {
       if (this.turnPhase === 'move') {
@@ -2358,11 +2373,11 @@ export class GameScene extends Phaser.Scene {
   }
 
   showTurnBanner(text) {
-    this.events.emit('turn:banner', text);
+    this.events.emit(GAME_SCENE_EVENTS.TURN_BANNER, text);
   }
 
   syncHud() {
-    this.events.emit('hud:update', this.getHudState());
+    this.events.emit(GAME_SCENE_EVENTS.HUD_UPDATE, this.getHudState());
   }
 
   getHudState() {

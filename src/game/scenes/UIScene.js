@@ -1,9 +1,10 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
+import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
 
 export class UIScene extends Phaser.Scene {
   constructor() {
-    super('ui');
+    super(SCENE_KEYS.UI);
   }
 
   create() {
@@ -406,7 +407,7 @@ export class UIScene extends Phaser.Scene {
     ];
 
     // ── Wire up interactions ───────────────────────────────────────────────────
-    this.gameScene = this.scene.get('game');
+    this.gameScene = this.scene.get(SCENE_KEYS.GAME);
 
     // Mode selector buttons
     [this.startModeCpuButton, this.startModeCpuText].forEach((item) => {
@@ -521,10 +522,10 @@ export class UIScene extends Phaser.Scene {
     });
 
     // ── Subscribe to game events ───────────────────────────────────────────────
-    this.gameScene.events.on('hud:update', this.updateHud, this);
-    this.gameScene.events.on('turn:banner', this.showBanner, this);
-    this.gameScene.events.on('overlay:update', this.updateOverlay, this);
-    this.gameScene.events.on('timer:update', this.updateTimer, this);
+    this.gameScene.events.on(GAME_SCENE_EVENTS.HUD_UPDATE, this.updateHud, this);
+    this.gameScene.events.on(GAME_SCENE_EVENTS.TURN_BANNER, this.showBanner, this);
+    this.gameScene.events.on(GAME_SCENE_EVENTS.OVERLAY_UPDATE, this.updateOverlay, this);
+    this.gameScene.events.on(GAME_SCENE_EVENTS.TIMER_UPDATE, this.updateTimer, this);
 
     if (typeof this.gameScene.getHudState === 'function') {
       this.updateHud(this.gameScene.getHudState());

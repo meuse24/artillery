@@ -225,12 +225,16 @@ npm run preview
   - Phaser-eigenes Audio ist deaktiviert; Audio laeuft ueber den eigenen `AudioManager`
 - `src/game/scenes/BootScene.js`
   - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
+  - startet Game/UI ueber zentrale Scene-Keys und beendet sich danach selbst
 - `src/game/scenes/GameScene.js`
   - Kern des Spiels: Match-Flow, Keyboard/Maus/Touch-Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
+  - `create()` ist als Spine in Setup-Schritte geteilt (`setupCoreSystems`, `setupRuntimeState`, `createFxLayers`, `setupInputHandlers`, `setupSceneLifecycle`)
   - emittiert zusaetzlich Arcade-Events (Shot/Bounce/Damage/Turn/Round) fuer entkoppelte Folge-Features
   - enthaelt Finisher-Inszenierung und Reduced-Motion-Schalter fuer Accessibility
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
+- `src/game/config/sceneContracts.js`
+  - zentrale Scene-Keys (`boot/game/ui`) und Game->UI Event-Namen (`hud:update`, `overlay:update`, ...)
 - `src/game/arcade/arcadeConfig.js`
   - zentrale Feature-Flags, Scoring-/Mutator-Parameter und Accessibility-Defaults
 - `src/game/arcade/events.js`
@@ -277,6 +281,13 @@ npm run preview
 - `Phase 4` abgeschlossen: Finisher-Inszenierung + Reduced Motion
 - `Phase 5` abgeschlossen: lokale Telemetrie + QA-Overlay-Daten
 - `Phase 6+` offen: Crates/Events, weitere Meta-Progression
+
+## Refactor-Status (Skill-Plan)
+
+- `Refactor Phase 1` abgeschlossen (Architektur-Spine):
+  - gemeinsame Scene-/Event-Kontrakte in `sceneContracts.js`
+  - `GameScene.create()` in klar getrennte Setup-Methoden zerlegt
+  - `BootScene` startet Ziel-Scenes per Kontrakt und stoppt sich danach
 
 ## Troubleshooting
 
