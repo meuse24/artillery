@@ -152,10 +152,10 @@ export class AudioManager {
 
   playShot(weapon) {
     this.tone({
-      frequency: weapon.id === 'mortar' ? 120 : weapon.id.startsWith('split') ? 240 : 190,
-      duration: weapon.id === 'mortar' ? 0.12 : 0.08,
-      type: weapon.id === 'mortar' ? 'sawtooth' : 'square',
-      gain: weapon.id === 'mortar' ? 0.038 : 0.03
+      frequency: weapon.id === 'mortar' ? 120 : weapon.id.startsWith('split') ? 240 : weapon.id === 'bouncer' ? 160 : 190,
+      duration: weapon.id === 'mortar' ? 0.12 : weapon.id === 'bouncer' ? 0.07 : 0.08,
+      type: weapon.id === 'mortar' ? 'sawtooth' : weapon.id === 'bouncer' ? 'triangle' : 'square',
+      gain: weapon.id === 'mortar' ? 0.038 : weapon.id === 'bouncer' ? 0.026 : 0.03
     });
     this.tone({
       frequency: weapon.id === 'split' ? 320 : 90,
@@ -190,6 +190,11 @@ export class AudioManager {
       type: 'square',
       gain: 0.012
     });
+  }
+
+  playBounce() {
+    this.tone({ frequency: 340, duration: 0.05, type: 'triangle', gain: 0.018 });
+    this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.012, delay: 0.04 });
   }
 
   playTurn() {

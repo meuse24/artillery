@@ -66,6 +66,29 @@ export const WEAPONS = [
     explosionCore: 0xd9fffb,
     explosionRing: 0x59e8d7,
     damageText: '#9ef7ef'
+  },
+  {
+    id: 'bouncer',
+    label: 'Bouncer',
+    speedFactor: 0.86,
+    gravityScale: 1.08,
+    windScale: 0.75,
+    blastRadius: 28,
+    damage: 38,
+    projectileRadius: 5,
+    color: 0x98ff8c,
+    predictionTime: 2.8,
+    maxBounces: 3,
+    restitution: 0.60,
+    muzzleColor: 0xb8ffa8,
+    trailWidth: 2.4,
+    trailAlpha: 0.44,
+    trailLength: 11,
+    burstCount: 11,
+    flashScale: 2.2,
+    explosionCore: 0xd4ffd4,
+    explosionRing: 0x44bb44,
+    damageText: '#98ff8c'
   }
 ];
 

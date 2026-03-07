@@ -662,6 +662,7 @@ export class GameScene extends Phaser.Scene {
       'Basic Shell: balanced standard shot',
       'Heavy Mortar: slower shell, bigger blast',
       'Split Shot: breaks into 3 bomblets mid-air',
+      'Bouncer: bounces up to 3x off terrain',
       '',
       'Tips',
       'Watch the wind before every shot.',
@@ -1125,8 +1126,21 @@ export class GameScene extends Phaser.Scene {
       ...config,
       sprite,
       trail,
-      trailPoints: []
+      trailPoints: [],
+      bouncesLeft: config.weapon.maxBounces ?? 0
     });
+  }
+
+  spawnBounceFlash(x, y, weapon) {
+    const flash = this.add.circle(x, y, 5, weapon.color, 0.72).setDepth(58);
+    this.tweens.add({
+      targets: flash,
+      radius: 13,
+      alpha: 0,
+      duration: 130,
+      onComplete: () => flash.destroy()
+    });
+    this.audioManager.playBounce();
   }
 
   playWeaponMuzzle(x, y, weapon) {
@@ -1192,6 +1206,29 @@ export class GameScene extends Phaser.Scene {
       projectile.sprite.setPosition(projectile.x, projectile.y);
 
       if (collision) {
+        const canBounce =
+          projectile.weapon.maxBounces &&
+          projectile.bouncesLeft > 0 &&
+          collision.type === 'terrain';
+
+        if (canBounce) {
+          const slopeL = this.terrain.getSurfaceY(collision.x - 2);
+          const slopeR = this.terrain.getSurfaceY(collision.x + 2);
+          const slope = (slopeR - slopeL) / 4;
+          const len = Math.hypot(-slope, 1);
+          const nx = -slope / len;
+          const ny = 1 / len;
+          const dot = projectile.vx * nx + projectile.vy * ny;
+          const r = projectile.weapon.restitution;
+          projectile.vx = (projectile.vx - 2 * dot * nx) * r;
+          projectile.vy = (projectile.vy - 2 * dot * ny) * r;
+          projectile.x = collision.x;
+          projectile.y = collision.y - 5;
+          projectile.bouncesLeft -= 1;
+          this.spawnBounceFlash(collision.x, collision.y, projectile.weapon);
+          continue;
+        }
+
         this.explode(collision.x, collision.y, projectile.weapon, projectile.owner);
         projectile.trail.destroy();
         projectile.sprite.destroy();
@@ -1283,7 +1320,7 @@ export class GameScene extends Phaser.Scene {
       const y = Phaser.Math.Linear(y0, y1, t);
 
       if (this.terrain.isSolid(x, y)) {
-        return { x, y };
+        return { x, y, type: 'terrain' };
       }
 
       for (const tank of this.players) {
@@ -1291,7 +1328,7 @@ export class GameScene extends Phaser.Scene {
           continue;
         }
         if (Phaser.Math.Distance.Between(x, y, tank.x, tank.y - 2) <= 17 + projectile.radius) {
-          return { x, y };
+          return { x, y, type: 'tank' };
         }
       }
     }
@@ -1525,6 +1562,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.prediction.strokePath();
+
+    // For bouncer: mark the first bounce point with a small ring
+    if (weapon.maxBounces && started) {
+      this.prediction.lineStyle(2, windColor, alpha * 0.8);
+      this.prediction.strokeCircle(x, y, 6);
+      this.prediction.lineStyle(1, windColor, alpha * 0.4);
+      this.prediction.strokeCircle(x, y, 10);
+    }
+
     this.predictionVisible = started;
     this.predictionDirty = false;
   }
