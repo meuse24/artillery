@@ -38,10 +38,15 @@ export class Terrain {
     ctx.lineTo(width, height);
     ctx.closePath();
 
+    // Layered gradient: grass → dirt → clay → stone → bedrock
+    // These bands are visible at crater edges when terrain is blown away.
     const fill = ctx.createLinearGradient(0, 0, 0, height);
-    fill.addColorStop(0, '#91aa6e');
-    fill.addColorStop(0.14, '#778d59');
-    fill.addColorStop(1, '#2b3827');
+    fill.addColorStop(0,    '#8fb868'); // grass top
+    fill.addColorStop(0.06, '#7a6040'); // dirt just below surface
+    fill.addColorStop(0.16, '#5c4530'); // dark loam
+    fill.addColorStop(0.34, '#4a3828'); // clay
+    fill.addColorStop(0.58, '#3a2e24'); // stone
+    fill.addColorStop(1,    '#1e1814'); // bedrock
 
     ctx.fillStyle = fill;
     ctx.fill();
@@ -192,11 +197,26 @@ export class Terrain {
     this.ctx.fill();
     this.ctx.restore();
 
+    // Draw a dirt-layer rim at the crater edge to hint at underground strata.
+    // The inner glow is painted over existing terrain so it stays visible.
     this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(249, 192, 110, 0.18)';
+    this.ctx.globalCompositeOperation = 'source-atop';
+    const rimGrad = this.ctx.createRadialGradient(x, y, radius * 0.55, x, y, radius + 3);
+    rimGrad.addColorStop(0,   'rgba(90, 65, 40, 0.0)');
+    rimGrad.addColorStop(0.6, 'rgba(90, 65, 40, 0.18)');
+    rimGrad.addColorStop(1,   'rgba(55, 40, 28, 0.38)');
+    this.ctx.fillStyle = rimGrad;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
+    this.ctx.fill();
+    this.ctx.restore();
+
+    // Outer ring glow (explosion scorch mark)
+    this.ctx.save();
+    this.ctx.strokeStyle = 'rgba(249, 192, 110, 0.14)';
     this.ctx.lineWidth = 2;
     this.ctx.beginPath();
-    this.ctx.arc(x, y, radius + 2, 0, Math.PI * 2);
+    this.ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
     this.ctx.stroke();
     this.ctx.restore();
 
