@@ -1008,6 +1008,7 @@ export class UIScene extends Phaser.Scene {
   updateOverlay(overlay) {
     const visible = Boolean(overlay);
     const isStart = Boolean(overlay && overlay.type === 'start');
+    const isTurn = Boolean(overlay && overlay.type === 'turn');
     this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
     this.tweens.killTweensOf(this.startOverlayContent);
 
@@ -1025,7 +1026,7 @@ export class UIScene extends Phaser.Scene {
     this.overlayPanel.setVisible(visible);
     this.overlayTitle.setVisible(visible);
     this.overlayBody.setVisible(visible);
-    this.overlayScoreboard.setVisible(visible && !isStart);
+    this.overlayScoreboard.setVisible(visible && !isStart && !isTurn);
     this.overlayPrompt.setVisible(visible);
     this.startDeco.setVisible(isStart);
     this.startKicker.setVisible(isStart);
@@ -1082,13 +1083,15 @@ export class UIScene extends Phaser.Scene {
     // ── Style by type ──────────────────────────────────────────────────────────
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
-    this.overlayTitle.setFontSize(overlay.type === 'start' ? '78px' : '40px');
+    this.overlayTitle.setFontSize(
+      overlay.type === 'start' ? '78px' : overlay.type === 'turn' ? '34px' : '40px'
+    );
     this.overlayTitle.setColor(overlay.type === 'start' ? '#f2b84b' : '#f4f1df');
     this.overlayPrompt.setColor(overlay.type === 'start' ? '#f4f1df' : '#f2b84b');
-    this.overlayPrompt.setFontSize(overlay.type === 'start' ? '22px' : '20px');
+    this.overlayPrompt.setFontSize(overlay.type === 'start' ? '22px' : overlay.type === 'turn' ? '18px' : '20px');
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
-    this.overlayBody.setFontSize(overlay.type === 'start' ? '20px' : '17px');
+    this.overlayBody.setFontSize(overlay.type === 'start' ? '20px' : overlay.type === 'turn' ? '20px' : '17px');
     this.overlayScoreboard.setFontSize('17px');
     this.overlayPanel.setFillStyle(overlay.type === 'start' ? 0x071018 : 0x09131b, overlay.type === 'start' ? 0.98 : 0.96);
     this.overlayPanel.setStrokeStyle(2, 0xffffff, overlay.type === 'start' ? 0.1 : 0.14);
@@ -1104,8 +1107,16 @@ export class UIScene extends Phaser.Scene {
     this.startOverlayContent.forEach((item) => { item.setAlpha(0); item.setScale(1); });
 
     // ── Panel size and positions ───────────────────────────────────────────────
-    this.overlayPanel.width = isStart ? (this.compactLayout ? 960 : 900) : this.compactLayout ? 940 : 860;
-    this.overlayPanel.height = isStart ? (this.compactLayout ? 548 : 520) : this.compactLayout ? 560 : 520;
+    this.overlayPanel.width = isStart
+      ? (this.compactLayout ? 960 : 900)
+      : isTurn
+        ? (this.compactLayout ? 720 : 680)
+        : this.compactLayout ? 940 : 860;
+    this.overlayPanel.height = isStart
+      ? (this.compactLayout ? 548 : 520)
+      : isTurn
+        ? (this.compactLayout ? 360 : 320)
+        : this.compactLayout ? 560 : 520;
     this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
 
     if (isStart) {
@@ -1161,12 +1172,15 @@ export class UIScene extends Phaser.Scene {
       this.drawStartDecor();
     } else {
       // Non-start overlays (turn, gameover, help)
-      this.overlayTitle.y = GAME_HEIGHT * 0.5 - 188;
-      this.overlayBody.x = GAME_WIDTH * 0.5 - 360;
+      this.overlayTitle.y = isTurn ? GAME_HEIGHT * 0.5 - 100 : GAME_HEIGHT * 0.5 - 188;
+      this.overlayBody.x = isTurn ? GAME_WIDTH * 0.5 - 280 : GAME_WIDTH * 0.5 - 360;
       this.overlayScoreboard.x = GAME_WIDTH * 0.5 + 110;
-      this.overlayBody.setWordWrapWidth(this.compactLayout ? 470 : 420, true);
+      this.overlayBody.setWordWrapWidth(
+        isTurn ? (this.compactLayout ? 560 : 520) : this.compactLayout ? 470 : 420,
+        true
+      );
       this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
-      this.overlayPrompt.y = GAME_HEIGHT * 0.5 + 214;
+      this.overlayPrompt.y = isTurn ? GAME_HEIGHT * 0.5 + 108 : GAME_HEIGHT * 0.5 + 214;
 
       if (overlay.type === 'help') {
         const viewport = this.getHelpViewport();
@@ -1182,6 +1196,9 @@ export class UIScene extends Phaser.Scene {
           this.helpMaxScroll = Math.max(0, textH - viewport.height);
           this.drawHelpScrollbar();
         });
+      } else if (isTurn) {
+        this.overlayBody.y = GAME_HEIGHT * 0.5 - 34;
+        this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;
       } else {
         this.overlayBody.y = GAME_HEIGHT * 0.5 - 128;
         this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;

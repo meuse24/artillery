@@ -91,6 +91,37 @@ export class GameScene extends Phaser.Scene {
       blendMode: 'ADD'
     });
     this.particles.setDepth(60);
+    this.fireParticles = this.add.particles(0, 0, 'particle-dot', {
+      lifespan: { min: 150, max: 320 },
+      speed: { min: 80, max: 280 },
+      scale: { start: 1.4, end: 0 },
+      quantity: 0,
+      emitting: false,
+      blendMode: 'ADD',
+      tint: [0xfff0b8, 0xffb347, 0xff6b2e]
+    });
+    this.fireParticles.setDepth(60);
+    this.emberParticles = this.add.particles(0, 0, 'particle-dot', {
+      lifespan: { min: 280, max: 620 },
+      speed: { min: 60, max: 240 },
+      scale: { start: 0.9, end: 0 },
+      quantity: 0,
+      emitting: false,
+      blendMode: 'ADD',
+      tint: [0xffd089, 0xff9342, 0xff5c3a]
+    });
+    this.emberParticles.setDepth(59);
+    this.smokeParticles = this.add.particles(0, 0, 'particle-dot', {
+      lifespan: { min: 480, max: 900 },
+      speed: { min: 18, max: 110 },
+      scale: { start: 1.3, end: 2.3 },
+      alpha: { start: 0.3, end: 0 },
+      quantity: 0,
+      emitting: false,
+      blendMode: 'NORMAL',
+      tint: [0x2b2320, 0x42332d, 0x5b4a3f]
+    });
+    this.smokeParticles.setDepth(56);
 
     this.prediction = this.add.graphics().setDepth(45);
     this.muzzleFlash = this.add.circle(0, 0, 8, 0xffd98c, 0).setDepth(55);
@@ -881,13 +912,10 @@ export class GameScene extends Phaser.Scene {
       type: 'turn',
       title: `${player.name} Turn`,
       body: [
-        this.isCpuControlledPlayer()
-          ? 'CPU is checking wind, terrain and shot power.'
-          : 'Pass the device to the next player.',
-        mutatorLabel ? `Mutator: ${mutatorLabel}` : '',
-        '',
-        'Phase 1: Move with keys or click/tap ground.',
-        'Phase 2: Aim, set power, choose weapon, then fire.'
+        this.isCpuControlledPlayer() ? 'CPU turn active' : 'Hand-off: next player',
+        `Phase 1  Move`,
+        `Phase 2  Aim + Fire`,
+        mutatorLabel ? `Mutator  ${mutatorLabel}` : 'Mutator  none'
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
       prompt: this.isCpuControlledPlayer()
@@ -938,47 +966,52 @@ export class GameScene extends Phaser.Scene {
 
   buildHelpBody() {
     return [
-      'Objective',
-      'Bring the enemy tank down to 0 HP before yours is destroyed.',
+      'MISSION',
+      'Destroy the enemy tank before your own HP reaches 0.',
       '',
-      'Round Flow',
-      '1. Move Phase: use Left/Right or click/tap ground to move.',
-      '2. End Move early with Space or click/tap your own tank.',
-      '3. Aim Phase: use mouse/touch drag or keys, adjust power, then fire.',
-      '4. The projectile resolves, the terrain deforms and the turn changes.',
+      'TURN LOOP',
+      '1) MOVE: reposition with Left/Right or click/tap terrain',
+      '2) AIM: set barrel angle + power, choose weapon',
+      '3) FIRE: one shot resolves fully, then turn swaps',
       '',
-      'Damage',
-      'Explosions deal more damage near the center and less at the edge.',
-      'Cratered terrain changes future lines of fire and can expose tanks.'
+      'DAMAGE MODEL',
+      '- Center blast = highest damage',
+      '- Edge blast = reduced damage',
+      '- Terrain deformation changes future lines and cover',
+      '',
+      'ARCADE SYSTEMS',
+      '- Combo + Skillshots grant score bonuses',
+      '- Mutators can alter gravity/wind and late-round damage',
+      '- Press V for reduced motion mode'
     ].join('\n');
   }
 
   buildHelpSidebar() {
     return [
-      'Controls',
-      'Move: Left/Right or click/tap ground',
-      'Skip Move: Space or click/tap own tank',
-      'Aim: mouse/touch drag or Up/Down',
-      'Power: mouse wheel, drag vertical, or A/D / J/L',
-      'Fire: click, touch release, or Space',
-      'Weapon: Q/E or mobile Weapon button',
-      'Overlay confirm: click/tap, Space, or Enter',
-      'Help: H, Esc, or mobile Help button',
-      'Reduced motion: V',
-      'Restart: R or click/tap on game-over',
+      'CONTROLS',
+      'Move ............ Left/Right or tap terrain',
+      'Skip move ....... Space or tap own tank',
+      'Aim ............. Mouse/drag or Up/Down',
+      'Power ........... Wheel/drag or A/D/J/L',
+      'Fire ............ Click/release or Space',
+      'Weapon .......... Q/E or mobile Weapon',
+      'Confirm overlay . Click/Space/Enter',
+      'Help ............ H / Esc / mobile Help',
+      'Reduced motion .. V',
+      'Restart ......... R',
       '',
-      'Weapons',
-      'Basic Shell: balanced standard shot',
-      'Heavy Mortar: slower shell, bigger blast',
-      'Split Shot: breaks into 3 bomblets mid-air',
-      'Bouncer: bounces up to 3x off terrain',
+      'WEAPONS',
+      'Basic Shell  - balanced',
+      'Heavy Mortar - slow, high blast',
+      'Split Shot   - 3 bomblets',
+      'Bouncer      - up to 3 rebounds',
       '',
-      'Tips',
-      'Watch the wind before every shot.',
-      'Use craters to create direct hits next turn.',
-      'Move only enough to improve the angle.',
+      'FAST TIPS',
+      'Read wind before every shot.',
+      'Use craters to open direct-hit paths.',
+      'Move only as much as needed.',
       '',
-      'Modes',
+      'MODE',
       `${this.getModeLabel()} active`,
       'Switch mode via M or the Switch Mode link on start/round-over.'
     ].join('\n');
@@ -1808,6 +1841,7 @@ export class GameScene extends Phaser.Scene {
       );
     }
     this.playArcadeImpactFx(x, y, weapon);
+    this.spawnFireballExplosion(x, y, weapon);
     this.terrain.deformCircle(crater.x, crater.y, weapon.blastRadius, { profile: 'crater' });
     // A shallow secondary carve guarantees visible surface damage on direct ground hits.
     this.terrain.deformCircle(crater.x, skimY, skimRadius, { drawRim: false, profile: 'scoop' });
@@ -1914,6 +1948,45 @@ export class GameScene extends Phaser.Scene {
     if (!this.gameOver) {
       this.time.delayedCall(260, () => this.resetCameraFocus());
     }
+  }
+
+  spawnFireballExplosion(x, y, weapon) {
+    const radius = weapon.blastRadius;
+    const motionScale = this.getMotionScale();
+    const fireCore = this.add.circle(x, y, Math.max(12, radius * 0.22), 0xffe6a8, 0.95).setDepth(61);
+    fireCore.setBlendMode(Phaser.BlendModes.ADD);
+    const fireShell = this.add.circle(x, y, Math.max(18, radius * 0.34), 0xff7a2a, 0.62).setDepth(60);
+    fireShell.setBlendMode(Phaser.BlendModes.ADD);
+    const smokeRing = this.add.circle(x, y, Math.max(16, radius * 0.28), 0x3a2a22, 0.26).setDepth(56);
+
+    this.tweens.add({
+      targets: fireCore,
+      radius: radius * 1.05,
+      alpha: 0,
+      duration: 180,
+      ease: 'Cubic.Out',
+      onComplete: () => fireCore.destroy()
+    });
+    this.tweens.add({
+      targets: fireShell,
+      radius: radius * 1.45,
+      alpha: 0,
+      duration: 240,
+      ease: 'Quad.Out',
+      onComplete: () => fireShell.destroy()
+    });
+    this.tweens.add({
+      targets: smokeRing,
+      radius: radius * 1.8,
+      alpha: 0,
+      duration: 520,
+      ease: 'Sine.Out',
+      onComplete: () => smokeRing.destroy()
+    });
+
+    this.fireParticles.explode(Math.floor(12 + radius * 0.7 * motionScale), x, y);
+    this.emberParticles.explode(Math.floor(8 + radius * 0.55 * motionScale), x, y);
+    this.smokeParticles.explode(Math.floor(6 + radius * 0.38 * motionScale), x, y);
   }
 
   playArcadeImpactFx(x, y, weapon) {

@@ -81,6 +81,62 @@ export class AudioManager {
     oscillator.stop(startAt + duration + 0.03);
   }
 
+  sweep({ from, to, duration, type = 'sawtooth', gain = 0.03, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+      return;
+    }
+
+    const startAt = this.context.currentTime + delay;
+    const oscillator = this.context.createOscillator();
+    const node = this.context.createGain();
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(Math.max(20, from), startAt);
+    oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, to), startAt + duration);
+    node.gain.setValueAtTime(0.0001, startAt);
+    node.gain.exponentialRampToValueAtTime(gain, startAt + 0.01);
+    node.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+
+    oscillator.connect(node);
+    node.connect(this.context.destination);
+    oscillator.start(startAt);
+    oscillator.stop(startAt + duration + 0.04);
+  }
+
+  noiseBurst({ duration = 0.14, gain = 0.02, highpass = 120, lowpass = 2200, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+      return;
+    }
+
+    this.createNoiseBuffer();
+    const startAt = this.context.currentTime + delay;
+    const source = this.context.createBufferSource();
+    source.buffer = this.noiseBuffer;
+
+    const hp = this.context.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.setValueAtTime(highpass, startAt);
+    hp.Q.value = 0.7;
+
+    const lp = this.context.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(lowpass, startAt);
+    lp.Q.value = 0.6;
+
+    const node = this.context.createGain();
+    node.gain.setValueAtTime(0.0001, startAt);
+    node.gain.exponentialRampToValueAtTime(gain, startAt + 0.015);
+    node.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
+
+    source.connect(hp);
+    hp.connect(lp);
+    lp.connect(node);
+    node.connect(this.context.destination);
+
+    source.start(startAt);
+    source.stop(startAt + duration + 0.05);
+  }
+
   ensureWindBed() {
     if (!this.context || this.windSource) {
       return;
@@ -151,35 +207,64 @@ export class AudioManager {
   }
 
   playShot(weapon) {
-    this.tone({
-      frequency: weapon.id === 'mortar' ? 120 : weapon.id.startsWith('split') ? 240 : weapon.id === 'bouncer' ? 160 : 190,
-      duration: weapon.id === 'mortar' ? 0.12 : weapon.id === 'bouncer' ? 0.07 : 0.08,
-      type: weapon.id === 'mortar' ? 'sawtooth' : weapon.id === 'bouncer' ? 'triangle' : 'square',
-      gain: weapon.id === 'mortar' ? 0.038 : weapon.id === 'bouncer' ? 0.026 : 0.03
+    const isMortar = weapon.id === 'mortar';
+    const isSplit = weapon.id.startsWith('split');
+    const isBouncer = weapon.id === 'bouncer';
+
+    this.sweep({
+      from: isMortar ? 220 : isSplit ? 320 : isBouncer ? 250 : 280,
+      to: isMortar ? 90 : isSplit ? 130 : isBouncer ? 120 : 110,
+      duration: isMortar ? 0.14 : 0.1,
+      type: isMortar ? 'sawtooth' : 'square',
+      gain: isMortar ? 0.042 : 0.034
     });
     this.tone({
-      frequency: weapon.id === 'split' ? 320 : 90,
-      duration: weapon.id === 'split' ? 0.09 : 0.12,
+      frequency: isSplit ? 430 : 520,
+      duration: 0.045,
       type: 'triangle',
-      gain: weapon.id === 'split' ? 0.022 : 0.018,
-      delay: 0.015
+      gain: 0.016,
+      delay: 0.01
+    });
+    this.noiseBurst({
+      duration: isMortar ? 0.11 : 0.08,
+      gain: isMortar ? 0.022 : 0.016,
+      highpass: isMortar ? 220 : 380,
+      lowpass: isMortar ? 1800 : 2600,
+      delay: 0.004
     });
   }
 
   playExplosion(weapon) {
     const radius = weapon.blastRadius;
-    this.tone({
-      frequency: 52 + radius * 0.8,
-      duration: weapon.id === 'mortar' ? 0.28 : 0.22,
-      type: weapon.id === 'split' ? 'triangle' : 'sawtooth',
-      gain: weapon.id === 'mortar' ? 0.05 : 0.04
+    const heavy = weapon.id === 'mortar' ? 1.2 : weapon.id === 'split' ? 0.8 : 1;
+
+    this.sweep({
+      from: 180 + radius * 1.2,
+      to: 42,
+      duration: 0.26 * heavy,
+      type: 'sawtooth',
+      gain: 0.05 * heavy
     });
-    this.tone({
-      frequency: 40,
-      duration: 0.2,
+    this.sweep({
+      from: 96,
+      to: 30,
+      duration: 0.34 * heavy,
       type: 'triangle',
-      gain: 0.025,
-      delay: 0.02
+      gain: 0.032 * heavy,
+      delay: 0.018
+    });
+    this.noiseBurst({
+      duration: 0.22 * heavy,
+      gain: 0.03 * heavy,
+      highpass: 80,
+      lowpass: 1400 + radius * 10
+    });
+    this.noiseBurst({
+      duration: 0.12 * heavy,
+      gain: 0.018 * heavy,
+      highpass: 260,
+      lowpass: 2400,
+      delay: 0.03
     });
   }
 
