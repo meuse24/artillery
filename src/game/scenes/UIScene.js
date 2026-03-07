@@ -1,5 +1,5 @@
 import Phaser from 'phaser';
-import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS, TURN_TIME_LIMIT } from '../constants.js';
+import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
 
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -969,12 +969,13 @@ export class UIScene extends Phaser.Scene {
     this.lastHudKey = hudKey;
 
     const weatherTag = state.weather ? `  |  ${state.weather}` : '';
+    const mutatorTag = state.mutator ? `  |  Mutator ${state.mutator}` : '';
     this.centerText.setText(
       state.gameOver
         ? state.winner
           ? `${state.winner} wins  |  Click/Tap or R for a new map`
           : 'Draw  |  Click/Tap or R for a new map'
-        : `${state.mode}${weatherTag}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
+        : `${state.mode}${weatherTag}${mutatorTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
     );
     this.controlsText.setText(
       state.gameOver

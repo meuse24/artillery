@@ -168,6 +168,7 @@ Wichtiger Browser-Hinweis:
 
 ```bash
 npm install
+npm run lint
 npm run dev
 ```
 
@@ -211,6 +212,7 @@ npm run preview
 - Kamera-Fokus bei Schuss und Einschlag
 - responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten
 - generiertes Audio ohne externe Assets
+- Phase-1-Arcade-Foundation: Event-Bus, konfigurierbare Feature-Flags, getrennte Scoring-/Mutator-Systeme als Erweiterungsschicht
 
 ## Architektur
 
@@ -221,8 +223,19 @@ npm run preview
   - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
 - `src/game/scenes/GameScene.js`
   - Kern des Spiels: Match-Flow, Keyboard/Maus/Touch-Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
+  - emittiert zusaetzlich Arcade-Events (Shot/Bounce/Damage/Turn/Round) fuer entkoppelte Folge-Features
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
+- `src/game/arcade/arcadeConfig.js`
+  - zentrale Feature-Flags und Limits fuer Arcade-Erweiterungen
+- `src/game/arcade/events.js`
+  - Event-Namen fuer die Arcade-Schicht
+- `src/game/systems/ArcadeEventBus.js`
+  - kleiner pub/sub Event-Bus fuer Gameplay-Events
+- `src/game/systems/ArcadeScoringSystem.js`
+  - konsumiert Arcade-Events und fuehrt Round-Metriken getrennt vom Core-Loop
+- `src/game/systems/MutatorSystem.js`
+  - Einstiegspunkt fuer spaetere Turn-/Match-Mutatoren (Phase 3)
 - `src/game/systems/Terrain.js`
   - Terrain-Generierung mit vier Presets, Pixelkollision, unregelmaessige Krater-Deformation, Impact-Decals, Bodenschicht-Gradient, Oberflaechenberechnung
 - `src/game/systems/WeatherSystem.js`

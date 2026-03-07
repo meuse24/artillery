@@ -16,7 +16,12 @@ import {
   WIND_LIMIT
 } from '../constants.js';
 import { Tank } from '../entities/Tank.js';
+import { ARCADE_CONFIG } from '../arcade/arcadeConfig.js';
+import { ARCADE_EVENTS } from '../arcade/events.js';
 import { AudioManager } from '../systems/AudioManager.js';
+import { ArcadeEventBus } from '../systems/ArcadeEventBus.js';
+import { ArcadeScoringSystem } from '../systems/ArcadeScoringSystem.js';
+import { MutatorSystem } from '../systems/MutatorSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
@@ -42,6 +47,16 @@ export class GameScene extends Phaser.Scene {
     this.audioManager = new AudioManager();
     this.scoreStore = new ScoreStore(PLAYER_NAMES);
     this.highscores = this.scoreStore.load();
+    this.arcadeConfig = ARCADE_CONFIG;
+    this.arcadeEvents = new ArcadeEventBus();
+    this.arcadeScoring = new ArcadeScoringSystem({
+      eventBus: this.arcadeEvents,
+      config: this.arcadeConfig
+    });
+    this.mutatorSystem = new MutatorSystem({
+      eventBus: this.arcadeEvents,
+      config: this.arcadeConfig
+    });
     this.currentMode = 'cpu';
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
@@ -199,6 +214,23 @@ export class GameScene extends Phaser.Scene {
       this.drawArcadeGrade();
       this.syncHud();
     });
+    this.events.once('shutdown', () => this.destroyArcadeSystems());
+    this.events.once('destroy', () => this.destroyArcadeSystems());
+  }
+
+  destroyArcadeSystems() {
+    if (this.arcadeScoring) {
+      this.arcadeScoring.destroy();
+      this.arcadeScoring = null;
+    }
+    if (this.mutatorSystem) {
+      this.mutatorSystem.destroy();
+      this.mutatorSystem = null;
+    }
+    if (this.arcadeEvents) {
+      this.arcadeEvents.destroy();
+      this.arcadeEvents = null;
+    }
   }
 
   isTouchPointer(pointer) {
@@ -624,8 +656,11 @@ export class GameScene extends Phaser.Scene {
     });
     this.positionWindsock();
     this.roundStats = this.createRoundStats();
+    this.turnNumber = 1;
     this.cpuState = null;
     this.cpuLastMiss = null;
+    this.arcadeScoring?.resetRound(this.players.map((player) => player.name));
+    this.mutatorSystem?.resetForMatch();
 
     this.turnIndex = Phaser.Math.Between(0, 1);
     this.remainingMove = MOVE_PER_TURN;
@@ -644,6 +679,17 @@ export class GameScene extends Phaser.Scene {
     this.stabilityActive = true;
     this.resetCameraFocus(1);
     this.audioManager.setWind(this.wind);
+    this.arcadeEvents?.emit(ARCADE_EVENTS.ROUND_STARTED, {
+      mode: this.currentMode,
+      weather: this.weather.getLabel(),
+      firstPlayer: this.getActivePlayer()?.name ?? ''
+    });
+    this.arcadeEvents?.emit(ARCADE_EVENTS.TURN_STARTED, {
+      turnNumber: this.turnNumber,
+      playerName: this.getActivePlayer()?.name ?? '',
+      phase: this.turnPhase,
+      wind: this.wind
+    });
     this.renderWindRibbon();
     this.markPredictionDirty();
     this.syncHud();
@@ -1381,6 +1427,13 @@ export class GameScene extends Phaser.Scene {
     this.focusCameraOn(origin.x, origin.y, 180, 1.03);
 
     this.roundStats[player.name].shots += 1;
+    this.arcadeEvents?.emit(ARCADE_EVENTS.SHOT_FIRED, {
+      turnNumber: this.turnNumber,
+      shooterName: player.name,
+      weaponId: weapon.id,
+      wind: this.wind,
+      weather: this.weather.getLabel()
+    });
     this.audioManager.playShot(weapon);
     this.playWeaponMuzzle(origin.x, origin.y, weapon);
     this.spawnProjectile({
@@ -1433,6 +1486,13 @@ export class GameScene extends Phaser.Scene {
       alpha: 0,
       duration: 130,
       onComplete: () => flash.destroy()
+    });
+    this.arcadeEvents?.emit(ARCADE_EVENTS.PROJECTILE_BOUNCED, {
+      turnNumber: this.turnNumber,
+      ownerName: this.getActivePlayer()?.name ?? '',
+      weaponId: weapon.id,
+      x,
+      y
     });
     this.audioManager.playBounce();
   }
@@ -1691,6 +1751,7 @@ export class GameScene extends Phaser.Scene {
     let bestHitDistance = Number.POSITIVE_INFINITY;
 
     for (const tank of this.players) {
+      const wasAlive = tank.isAlive();
       tank.syncToTerrain(this.terrain);
       const distance = Phaser.Math.Distance.Between(x, y, tank.x, tank.y - 2);
       const maxDistance = weapon.blastRadius + 28;
@@ -1711,6 +1772,22 @@ export class GameScene extends Phaser.Scene {
             ownerStats.directHits += 1;
           }
         }
+        this.arcadeEvents?.emit(ARCADE_EVENTS.DAMAGE_APPLIED, {
+          turnNumber: this.turnNumber,
+          ownerName: owner?.name ?? null,
+          targetName: tank.name,
+          weaponId: weapon.id,
+          damage,
+          distance
+        });
+      }
+      if (wasAlive && !tank.isAlive()) {
+        this.arcadeEvents?.emit(ARCADE_EVENTS.TANK_DESTROYED, {
+          turnNumber: this.turnNumber,
+          ownerName: owner?.name ?? null,
+          targetName: tank.name,
+          weaponId: weapon.id
+        });
       }
     }
     if (bestHitDistance < 16) {
@@ -1728,6 +1805,15 @@ export class GameScene extends Phaser.Scene {
         this.cpuLastMiss = { dx: x - target.x, dy: y - (target.y - 2) };
       }
     }
+
+    this.arcadeEvents?.emit(ARCADE_EVENTS.EXPLOSION_RESOLVED, {
+      turnNumber: this.turnNumber,
+      ownerName: owner?.name ?? null,
+      weaponId: weapon.id,
+      x,
+      y,
+      bestHitDistance
+    });
 
     this.checkWinState();
     this.renderWindRibbon();
@@ -1891,6 +1977,11 @@ export class GameScene extends Phaser.Scene {
     }
     const banner = this.winner ? `${this.winner.name} wins` : 'Draw';
     this.showTurnBanner(banner);
+    this.arcadeEvents?.emit(ARCADE_EVENTS.ROUND_ENDED, {
+      turnNumber: this.turnNumber,
+      winnerName: this.winner?.name ?? null,
+      roundStats: this.roundStats
+    });
     this.showGameOverOverlay();
     this.syncHud();
   }
@@ -1901,6 +1992,12 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    this.arcadeEvents?.emit(ARCADE_EVENTS.TURN_ENDED, {
+      turnNumber: this.turnNumber,
+      playerName: this.getActivePlayer()?.name ?? ''
+    });
+
+    this.turnNumber += 1;
     this.turnIndex = (this.turnIndex + 1) % this.players.length;
     if (!this.getActivePlayer().isAlive()) {
       this.turnIndex = (this.turnIndex + 1) % this.players.length;
@@ -1909,7 +2006,17 @@ export class GameScene extends Phaser.Scene {
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
     this.turnTimer = TURN_TIME_LIMIT;
-    this.wind = this.weather.applyStormWind(this.rollWind(), WIND_LIMIT);
+    let nextWind = this.weather.applyStormWind(this.rollWind(), WIND_LIMIT);
+    const mutatorEffect = this.mutatorSystem?.onTurnStart({
+      turnNumber: this.turnNumber,
+      playerName: this.getActivePlayer()?.name ?? '',
+      phase: this.turnPhase,
+      wind: nextWind
+    });
+    if (typeof mutatorEffect?.windOverride === 'number') {
+      nextWind = mutatorEffect.windOverride;
+    }
+    this.wind = nextWind;
     this.resolving = false;
     this.stabilityActive = true;
     this.cpuState = null;
@@ -2064,6 +2171,7 @@ export class GameScene extends Phaser.Scene {
       windDirection: this.getWindDirectionLabel(),
       windStrength: this.getWindStrengthLabel(),
       windEffect: this.getWindEffectText(),
+      turnNumber: this.turnNumber ?? 1,
       remainingMove: this.remainingMove,
       players: this.players.map((player) => {
         const w = getWeapon(player.weaponIndex);
@@ -2082,7 +2190,9 @@ export class GameScene extends Phaser.Scene {
       winner: this.winner?.name ?? null,
       turnTimer: Math.ceil(this.turnTimer ?? TURN_TIME_LIMIT),
       isCpuTurn: this.isCpuControlledPlayer(),
-      weather: this.weather?.getLabel() ?? ''
+      weather: this.weather?.getLabel() ?? '',
+      mutator: this.mutatorSystem?.getHudLabel() ?? '',
+      arcade: this.arcadeScoring?.getSnapshot() ?? { players: {} }
     };
   }
 
