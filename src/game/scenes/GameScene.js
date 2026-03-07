@@ -451,6 +451,7 @@ export class GameScene extends Phaser.Scene {
     this.positionWindsock();
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
+    this.cpuLastMiss = null;
 
     this.turnIndex = Phaser.Math.Between(0, 1);
     this.remainingMove = MOVE_PER_TURN;
@@ -723,6 +724,25 @@ export class GameScene extends Phaser.Scene {
     };
   }
 
+  // Returns the list of weapon indices the CPU may consider this turn.
+  getCpuWeaponCandidates(player, target) {
+    const dist = Math.abs(target.x - player.x);
+    const candidates = [0]; // Basic Shell always available
+
+    // Mortar preferred at medium+ range; don't waste if only 1 left
+    if (player.getAmmo('mortar') > 0) {
+      candidates.push(1);
+    }
+
+    // Split Shot: good when target is close enough that spread helps
+    if (dist < 320 && player.getAmmo('split') > 0) {
+      candidates.push(2);
+    }
+
+    // Bouncer: never used by CPU (bounce simulation not implemented)
+    return candidates;
+  }
+
   getFireOriginForPitch(player, pitch) {
     const pitchRad = Phaser.Math.DegToRad(pitch);
     const worldAngle = player.facing === 1 ? -pitchRad : -Math.PI + pitchRad;
@@ -765,14 +785,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   computeCpuShotPlan(player, target) {
-    const candidates = [0, 1];
-    const directDistance = Math.abs(target.x - player.x);
-    if (directDistance < 240) {
-      candidates.push(2);
-    }
+    const candidates = this.getCpuWeaponCandidates(player, target);
+
+    // Apply error correction from last shot if available.
+    // cpuLastMiss.dx > 0 means shell landed right of target → reduce pitch or power slightly.
+    const miss = this.cpuLastMiss;
+    const pitchBias = miss ? Phaser.Math.Clamp(-miss.dx * 0.04, -6, 6) : 0;
+    const powerBias = miss ? Phaser.Math.Clamp(-miss.dy * 0.18, -40, 40) : 0;
 
     let bestPlan = {
-      weaponIndex: 0,
+      weaponIndex: candidates[0],
       pitch: 48,
       power: 360,
       score: Number.POSITIVE_INFINITY
@@ -780,13 +802,21 @@ export class GameScene extends Phaser.Scene {
 
     candidates.forEach((weaponIndex) => {
       const weapon = getWeapon(weaponIndex);
-      for (let pitch = 18; pitch <= 82; pitch += 4) {
-        for (let power = 220; power <= 520; power += 20) {
+      // Narrow search around the bias when we have correction data
+      const pitchMin = miss ? Phaser.Math.Clamp(18 + pitchBias, 14, 82) : 18;
+      const pitchMax = miss ? Phaser.Math.Clamp(82 + pitchBias, 14, 82) : 82;
+      const powerMin = miss ? Phaser.Math.Clamp(220 + powerBias, 180, 540) : 220;
+      const powerMax = miss ? Phaser.Math.Clamp(520 + powerBias, 180, 540) : 520;
+
+      for (let pitch = pitchMin; pitch <= pitchMax; pitch += 4) {
+        for (let power = powerMin; power <= powerMax; power += 20) {
           const result = this.simulateWeaponImpact(player, target, pitch, power, weapon);
           const selfDistance = Phaser.Math.Distance.Between(result.x, result.y, player.x, player.y);
           const selfPenalty = selfDistance < weapon.blastRadius + 26 ? 280 : 0;
           const directBonus = result.directHit ? -120 : 0;
-          const score = result.distance + selfPenalty + directBonus;
+          // Prefer mortar when close (larger blast radius covers misses better)
+          const weaponBonus = weaponIndex === 1 && Math.abs(target.x - player.x) < 200 ? -20 : 0;
+          const score = result.distance + selfPenalty + directBonus + weaponBonus;
 
           if (score < bestPlan.score) {
             bestPlan = { weaponIndex, pitch, power, score };
@@ -1425,6 +1455,14 @@ export class GameScene extends Phaser.Scene {
       }
     }
 
+    // Record miss data for CPU error correction on the next turn
+    if (owner && this.isCpuControlledPlayer(this.turnIndex)) {
+      const target = this.players.find((t) => t !== owner && t.isAlive());
+      if (target) {
+        this.cpuLastMiss = { dx: x - target.x, dy: y - (target.y - 2) };
+      }
+    }
+
     this.checkWinState();
     this.renderWindRibbon();
     this.syncHud();
@@ -1522,6 +1560,10 @@ export class GameScene extends Phaser.Scene {
     this.resolving = false;
     this.stabilityActive = true;
     this.cpuState = null;
+    // Clear miss memory when it's no longer the CPU's turn
+    if (!this.isCpuControlledPlayer((this.turnIndex + 1) % this.players.length)) {
+      this.cpuLastMiss = null;
+    }
 
     this.players.forEach((tank) => tank.syncToTerrain(this.terrain));
     this.positionWindsock();
