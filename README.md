@@ -1,6 +1,6 @@
 # Artillery
 
-Ein lokales 2D-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, drei Waffen, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
+Ein lokales 2D-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, vier Waffen mit Munitionslimit, Zugtimer, Wetterbedingungen, vier Terrain-Presets, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
 
 ## Konzept
 
@@ -8,11 +8,12 @@ Zwei Tanks stehen auf einer prozeduralen Landschaft. Pro Runde bewegt sich der a
 
 Das Spiel ist absichtlich klar lesbar gebaut:
 
-- kurze Zuege
+- kurze Zuege mit hartem 25-Sekunden-Timer
 - eindeutige Phasen
 - gut sichtbarer Wind
-- wenige, aber mechanisch unterschiedliche Waffen
+- vier mechanisch unterschiedliche Waffen, teilweise mit begrenzter Munition
 - schnelle Restart-Schleife fuer "one more round"
+- zufaellige Terrain-Form und Wetterbedingung je Match
 
 ## Spielziel
 
@@ -23,6 +24,8 @@ Wichtig fuer das Match:
 - Wind veraendert jede Flugbahn.
 - Krater sind nicht nur Deko, sondern veraendern Schusswinkel und Tankpositionen.
 - Direkte Treffer und Treffer nahe am Ziel sind deutlich staerker als Randtreffer.
+- Seltene Waffen (Mortar, Split Shot, Bouncer) haben begrenzte Munition — Einsatz will geplant sein.
+- Wetterbedingungen (Regen, Nebel, Sturm) veraendern Physik und Wind pro Match.
 - Der Highscore zaehlt gewonnene Runden ueber mehrere Matches hinweg.
 
 ## Modi
@@ -34,17 +37,21 @@ Der Modus kann auf dem Startscreen per Klick auf die Modusflaeche oder per `M` g
 
 ## Rundenablauf
 
-Jeder Zug hat zwei klar getrennte Phasen:
+Jeder Zug hat zwei klar getrennte Phasen und einen gemeinsamen 25-Sekunden-Timer:
 
 1. `Move`
    - `Left / Right` bewegt den aktiven Tank
    - Bewegung ist pro Zug begrenzt
    - `Space` beendet die Bewegungsphase vorzeitig
+   - laeuft der Timer ab, wechselt das Spiel automatisch in die Aim-Phase
 2. `Aim / Fire`
    - Winkel, Leistung und Waffe einstellen
    - `Space` feuert den Schuss
+   - laeuft der Timer ab, wird automatisch gefeuert
    - Projektil, Explosion, Schaden und Terrain-Deformation werden voll aufgeloest
    - danach wechselt der Zug
+
+Der Timer gilt nur fuer menschliche Spieler. CPU-Zuege sind zeitunabhaengig.
 
 Zusatz-Flow:
 
@@ -61,7 +68,7 @@ Zusatz-Flow:
 - `Left / Right`: Tank bewegen
 - `Up / Down`: Rohr anheben / senken
 - `A / D` oder `J / L`: Schusskraft reduzieren / erhoehen
-- `Q / E`: Waffe wechseln
+- `Q / E`: Waffe wechseln (ueberspringt leere Waffen automatisch)
 - `Space`: in `Move` auf `Aim` wechseln, in `Aim` feuern
 - `Enter`: Startscreen, Turn-Handoff und Game-Over bestaetigen
 - `H`: Help-Screen oeffnen
@@ -71,14 +78,41 @@ Zusatz-Flow:
 
 ## Waffen
 
-- `Basic Shell`
+- `Basic Shell` — unbegrenzte Munition
   - Standardschuss mit ausgewogenem Schaden und Radius
-- `Heavy Mortar`
+- `Heavy Mortar` — 5 Schuss pro Match
   - langsamer, schwerer, groessere Explosion und groesserer Krater
-- `Split Shot`
-  - teilt sich in der Luft in mehrere Teilbomben und deckt breitere Flaechen ab
+  - weniger windanfaellig als die Basic Shell
+- `Split Shot` — 3 Schuss pro Match
+  - teilt sich in der Luft in drei Teilbomben und deckt breitere Flaechen ab
+- `Bouncer` — 3 Schuss pro Match
+  - prallt bis zu dreimal am Terrain ab, bevor er explodiert
+  - Abprallwinkel folgt der lokalen Hangneiung
+  - die Flugbahn-Vorschau markiert den ersten Aufprallpunkt mit einem Ring
 
-Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber Muzzle-Flash, Trail, Explosion und Schadenstext.
+Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber Muzzle-Flash, Trail, Explosion und Schadenstext. Die verbleibende Munition steht im HUD neben dem Waffennamen.
+
+## Terrain-Presets
+
+Pro Match wird zufaellig eines von vier Terrain-Profilen gewaehlt:
+
+- `Standard` — wellige Huegel, der klassische Modus
+- `Valley` — tiefes Mittetal, Tanks starten auf hohen Graten links und rechts
+- `Fortress` — breite flache Plattformen mit steilen Klippen dazwischen
+- `Chaos` — viele enge Huegel, kein freier Schussweg garantiert
+
+Krater legen sichtbare Bodenschichten frei (Erde, Lehm, Stein, Fels).
+
+## Wetter
+
+Zu Beginn jedes Matches wird zufaellig eine Wetterbedingung gewaehlt:
+
+- `Kein Wetter` (haeufigstes Ergebnis) — normales Spiel
+- `Regen` — sichtbare Regentropfen, Schwerkraft auf alle Projektile +12 %
+- `Nebel` — halbtransparentes Overlay reduziert die Sichtweite
+- `Sturm` — Wind wird nach jedem Schuss komplett neu gewuerfelt
+
+Die aktive Bedingung steht im HUD-Centertext.
 
 ## Wind
 
@@ -91,16 +125,24 @@ Wind ist bewusst mehrfach visualisiert, damit er im Spielfluss sofort lesbar ist
 - kleine Ambient-Partikel, die in Windrichtung driften
 - farbige Flugbahn-Vorschau in der Aim-Phase
 
+## Zugtimer
+
+- 25 Sekunden pro Zug (Move + Aim kombiniert)
+- Fortschrittsbalken im HUD-Zentrum
+- Balken faerbt sich orange bei ≤ 10 s, rot und blinkend bei ≤ 5 s
+- Ablauf in Move-Phase: automatischer Wechsel in Aim
+- Ablauf in Aim-Phase: automatisches Feuern der aktiven Waffe
+- CPU-Zuege sind vom Timer ausgenommen
+
 ## Audio
 
 Das Spiel verwendet ein kleines generiertes Web-Audio-System statt externer Sounddateien:
 
 - dezentes Windbett auf Basis von gefiltertem Rauschen
-- Waffen-Schuesse
+- Waffen-Schuesse (je Waffe eigenes Profil)
+- Bouncer-Aufprall-Sound
 - Explosionen
 - Trefferfeedback
-
-Der fruehere konstante Windton wurde durch eine leisere, modulierte Ambience ersetzt.
 
 Wichtiger Browser-Hinweis:
 
@@ -134,15 +176,19 @@ npm run preview
 
 ## Features
 
-- prozedurales, deformierbares Terrain
-- sichtbare Krater-Deformation mit Bodenabtrag
+- prozedurales, deformierbares Terrain mit vier Preset-Typen
+- sichtbare Krater-Deformation mit Bodenschichten (Erde, Lehm, Stein)
 - Tanks passen sich dem Terrain an und koennen an steilen Raendern rutschen
-- drei unterschiedliche Waffen
+- vier unterschiedliche Waffen, drei davon mit begrenzter Munition
+- Bouncer-Waffe mit physikalisch korrekter Terrain-Reflektion
+- Ammo-System: Cycling ueberspringt leere Waffen automatisch
+- 25-Sekunden-Zugtimer mit Auto-Feuer bei Ablauf
+- Wetterbedingungen: Regen, Nebel, Sturm
 - Wind als echter Gameplay-Faktor
-- Flugbahn-Vorschau in der Aim-Phase
+- Flugbahn-Vorschau in der Aim-Phase (Bouncer: Aufprallpunkt-Indikator)
 - Startscreen mit klickbarer Moduswahl, Score-Karten und CTA
 - Help-Screen, Turn-Handoff und Game-Over-Flow
-- CPU-Gegner mit einfacher ballistischer Zielsuche
+- CPU-Gegner mit ballistischer Zielsuche, Fehlerkorrektur und situativer Waffenwahl
 - Rundenstatistiken und persistenter Highscore via `localStorage`
 - animierte HP-Bars, Schadenstexte und Trefferfeedback
 - Kamera-Fokus bei Schuss und Einschlag
@@ -157,17 +203,19 @@ npm run preview
 - `src/game/scenes/BootScene.js`
   - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
 - `src/game/scenes/GameScene.js`
-  - Kern des Spiels: Match-Flow, Input, Projektilsimulation, Explosionen, CPU-Zuege, Kamera, Windanzeige, Overlays, Stats und Modusumschaltung
+  - Kern des Spiels: Match-Flow, Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
 - `src/game/scenes/UIScene.js`
-  - HUD, HP-Bars, Controls-Hinweise, Overlay-Layout, klickbare Startscreen-Elemente und responsive Anpassungen
+  - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, klickbare Startscreen-Elemente und responsive Anpassungen
 - `src/game/systems/Terrain.js`
-  - Terrain-Generierung, Pixelkollision, Krater-Deformation, Oberflaechenberechnung, Material-Look
+  - Terrain-Generierung mit vier Presets, Pixelkollision, Krater-Deformation, Bodenschicht-Gradient, Oberflaechenberechnung
+- `src/game/systems/WeatherSystem.js`
+  - Wetterbedingungen: Regen-Partikel, Nebel-Overlay, Sturm-Windwuerfelung, Schwerkraft-Modifikator
 - `src/game/entities/Tank.js`
-  - Tankdarstellung, Rohr, Animation, Federung, Fahne, Terrain-Ausrichtung
+  - Tankdarstellung, Rohr, Animation, Federung, Fahne, Terrain-Ausrichtung, Ammo-Tracking
 - `src/game/weapons.js`
-  - Waffenprofile fuer Mechanik und VFX/SFX-Identity
+  - Waffenprofile fuer Mechanik, Munitionslimits und VFX/SFX-Identity
 - `src/game/systems/AudioManager.js`
-  - Web-Audio-Synthese, dezente Wind-Ambience und Audio-Unlock nach User-Geste
+  - Web-Audio-Synthese, dezente Wind-Ambience, Bouncer-Sound und Audio-Unlock nach User-Geste
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
 
@@ -175,8 +223,11 @@ npm run preview
 
 - Das Projekt ist local-first und hat kein Backend.
 - Terrain und Krater basieren auf einem Canvas-/Pixelmodell. Dadurch bleiben Rendern und Kollisionen konsistent.
+- Terrain-Presets teilen denselben Canvas-Workflow; nur `buildSurface()` ist je Preset verschieden.
+- Bounce-Physik nutzt die lokale Hangneigung aus `surfaceY` fuer die Normalenreflektion.
 - Die Flugbahn-Vorschau wird nicht in jedem Frame voll neu berechnet, sondern nur bei relevanten Aenderungen.
 - Ambient- und Stabilitaets-Updates laufen getaktet, um Dev-Mode-Overhead zu begrenzen.
+- Wetter-Updates fuer Regen laufen ebenfalls getaktet (30 Hz), Fog und Storm haben keinen laufenden Update-Overhead.
 
 ## Troubleshooting
 
@@ -193,6 +244,8 @@ npm run preview
 
 ## Bekannte Tradeoffs
 
-- Die CPU ist solide spielbar, aber kein starker Taktik-Gegner mit Mehrzug-Planung.
+- Die CPU nutzt eine brute-force Schusssuche mit Fehlerkorrektur; sie plant keine Mehrzug-Strategien.
+- Der Bouncer wird von der CPU nicht eingesetzt, da die Bounce-Simulation im Planner nicht implementiert ist.
 - Das Spiel ist desktop-first. Kleine Viewports werden abgefedert, es gibt aber keine vollwertige Touch-Steuerung.
 - Audio ist bewusst synthetisch und leichtgewichtig statt samplebasiert.
+- Der Zugtimer gilt nicht fuer CPU-Zuege und wird bei offenen Overlays pausiert.
