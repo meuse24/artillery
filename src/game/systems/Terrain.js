@@ -5,6 +5,7 @@ export class Terrain {
     this.scene = scene;
     this.width = width;
     this.height = height;
+    this.preset = 'standard';
     this.surfaceY = new Array(width).fill(height - 1);
 
     if (scene.textures.exists(key)) {
@@ -20,28 +21,19 @@ export class Terrain {
     this.generate();
   }
 
-  generate() {
+  generate(preset) {
+    // Pick a random preset if not specified
+    const presets = ['standard', 'valley', 'fortress', 'chaos'];
+    this.preset = preset ?? presets[Phaser.Math.Between(0, presets.length - 1)];
+
     // Terrain is stored on a canvas so rendering and crater carving stay in sync.
     const { width, height, ctx } = this;
-    const base = height * 0.63;
-    const p1 = Phaser.Math.FloatBetween(0, Math.PI * 2);
-    const p2 = Phaser.Math.FloatBetween(0, Math.PI * 2);
-    const p3 = Phaser.Math.FloatBetween(0, Math.PI * 2);
 
     ctx.clearRect(0, 0, width, height);
     ctx.beginPath();
     ctx.moveTo(0, height);
 
-    for (let x = 0; x < width; x += 1) {
-      const rise =
-        Math.sin(x * 0.009 + p1) * 70 +
-        Math.sin(x * 0.021 + p2) * 26 +
-        Math.sin(x * 0.045 + p3) * 12;
-      const valleyBias = Math.sin((x / width) * Math.PI * 2 - p2) * 18;
-      const y = Phaser.Math.Clamp(Math.round(base + rise + valleyBias), 210, height - 90);
-      this.surfaceY[x] = y;
-      ctx.lineTo(x, y);
-    }
+    this.buildSurface();
 
     ctx.lineTo(width, height);
     ctx.closePath();
@@ -104,6 +96,71 @@ export class Terrain {
 
     this.rebuildPixels();
     this.canvasTexture.refresh();
+  }
+
+  buildSurface() {
+    // Each preset fills this.surfaceY and calls ctx.lineTo for every x column.
+    const { width, height, ctx } = this;
+
+    if (this.preset === 'valley') {
+      // Deep V-valley in the center; tanks start on high ridges
+      const p1 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      for (let x = 0; x < width; x += 1) {
+        const t = x / width; // 0..1
+        const ridge = Math.sin(t * Math.PI) * 180; // deepest at center
+        const noise = Math.sin(x * 0.018 + p1) * 22 + Math.sin(x * 0.042 + p1 * 1.3) * 10;
+        const y = Phaser.Math.Clamp(Math.round(height * 0.38 + ridge + noise), 200, height - 80);
+        this.surfaceY[x] = y;
+        ctx.lineTo(x, y);
+      }
+    } else if (this.preset === 'fortress') {
+      // Wide flat platforms separated by steep drops
+      const platformCount = Phaser.Math.Between(4, 6);
+      const platformWidth = Math.floor(width / platformCount);
+      for (let x = 0; x < width; x += 1) {
+        const segment = Math.floor(x / platformWidth);
+        const t = (x % platformWidth) / platformWidth; // 0..1 within segment
+        const baseH = height * (0.38 + (segment % 2) * 0.18);
+        // Sharp transition: cliff in the last 8% of each segment
+        const blend = t > 0.92 ? (t - 0.92) / 0.08 : 0;
+        const nextH = height * (0.38 + ((segment + 1) % 2) * 0.18);
+        const noise = Math.sin(x * 0.06) * 8;
+        const y = Phaser.Math.Clamp(Math.round(Phaser.Math.Linear(baseH, nextH, blend) + noise), 200, height - 80);
+        this.surfaceY[x] = y;
+        ctx.lineTo(x, y);
+      }
+    } else if (this.preset === 'chaos') {
+      // Many small rapid hills — tough terrain
+      const p1 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const p2 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const p3 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      for (let x = 0; x < width; x += 1) {
+        const rise =
+          Math.sin(x * 0.028 + p1) * 56 +
+          Math.sin(x * 0.058 + p2) * 28 +
+          Math.sin(x * 0.11 + p3) * 16 +
+          Math.sin(x * 0.21 + p1 * 0.7) * 10;
+        const y = Phaser.Math.Clamp(Math.round(height * 0.56 + rise), 210, height - 80);
+        this.surfaceY[x] = y;
+        ctx.lineTo(x, y);
+      }
+    } else {
+      // 'standard' — original hilly terrain
+      const base = height * 0.63;
+      const p1 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const p2 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const p3 = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      for (let x = 0; x < width; x += 1) {
+        const rise =
+          Math.sin(x * 0.009 + p1) * 70 +
+          Math.sin(x * 0.021 + p2) * 26 +
+          Math.sin(x * 0.045 + p3) * 12;
+        const valleyBias = Math.sin((x / width) * Math.PI * 2 - p2) * 18;
+        const y = Phaser.Math.Clamp(Math.round(base + rise + valleyBias), 210, height - 90);
+        this.surfaceY[x] = y;
+        ctx.lineTo(x, y);
+      }
+    }
   }
 
   rebuildPixels() {

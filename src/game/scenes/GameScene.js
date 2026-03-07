@@ -575,7 +575,7 @@ export class GameScene extends Phaser.Scene {
         wins: this.highscores[name] ?? 0
       })),
       kicker: 'DESTRUCTIBLE TANK DUEL',
-      tagline: 'Read the wind. Break the hill.',
+      tagline: 'Read the wind. Break the hill. Every map is different.',
       modeLabel: this.getModeLabel(),
       modeKey: this.currentMode,
       hint: 'H how to play  |  M switch mode',
