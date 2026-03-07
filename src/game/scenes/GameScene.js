@@ -24,6 +24,7 @@ import { ArcadeScoringSystem } from '../systems/ArcadeScoringSystem.js';
 import { MutatorSystem } from '../systems/MutatorSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
+import { TelemetrySystem } from '../systems/TelemetrySystem.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 
@@ -56,6 +57,9 @@ export class GameScene extends Phaser.Scene {
     this.mutatorSystem = new MutatorSystem({
       eventBus: this.arcadeEvents,
       config: this.arcadeConfig
+    });
+    this.telemetrySystem = new TelemetrySystem({
+      eventBus: this.arcadeEvents
     });
     this.installArcadeFeedback();
     this.reducedMotion = this.arcadeConfig.accessibility.reducedMotionDefault;
@@ -233,6 +237,10 @@ export class GameScene extends Phaser.Scene {
     if (this.mutatorSystem) {
       this.mutatorSystem.destroy();
       this.mutatorSystem = null;
+    }
+    if (this.telemetrySystem) {
+      this.telemetrySystem.destroy();
+      this.telemetrySystem = null;
     }
     if (this.arcadeEvents) {
       this.arcadeEvents.destroy();
@@ -739,6 +747,7 @@ export class GameScene extends Phaser.Scene {
     this.arcadeEvents?.emit(ARCADE_EVENTS.ROUND_STARTED, {
       mode: this.currentMode,
       weather: this.weather.getLabel(),
+      turnNumber: this.turnNumber,
       firstPlayer: this.getActivePlayer()?.name ?? ''
     });
     this.renderWindRibbon();
@@ -911,7 +920,9 @@ export class GameScene extends Phaser.Scene {
         OBJECTIVE_TEXT,
         '',
         'Round Stats',
-        this.getRoundStatsText()
+        this.getRoundStatsText(),
+        '',
+        this.telemetrySystem?.getSummaryText() ?? ''
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
       prompt: 'Click/Tap, Space, Enter or R for a new round  |  M/switch mode link  |  H/Help'

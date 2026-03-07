@@ -216,6 +216,7 @@ npm run preview
 - Phase-2-Arcade-Scoring: Combo-Multiplikator, Skillshots (`DIRECT HIT`, `BANK SHOT`, `LONG SHOT`, `LAST SECOND`) und Live-Score im HUD
 - Phase-3-Mutatoren: turn-basierte Modifikatoren (`Low Gravity`, `Wind Pulse`) plus `Sudden Death` Damage-Scaling ab spaeter Runde
 - Phase-4-Inszenierung: KO-Finisher-Callout, staerkere Combo-Ansagen und optional `Reduced Motion`-Modus (`V`)
+- Phase-5-QA-Layer: lokale Round-Telemetrie (Hit-Rate, Direct-Hit-Share, durchschnittliche Rundenlaenge) fuer Balance-Tuning
 
 ## Architektur
 
@@ -242,6 +243,9 @@ npm run preview
 - `src/game/systems/MutatorSystem.js`
   - waehlt und verwaltet aktive Turn-Mutatoren
   - beeinflusst Wind, Schwerkraft und Damage-Multiplikatoren
+- `src/game/systems/TelemetrySystem.js`
+  - sammelt Match-Metriken aus Arcade-Events
+  - speichert Rolling-History lokal in `localStorage` und liefert Tuning-Summary
 - `src/game/systems/Terrain.js`
   - Terrain-Generierung mit vier Presets, Pixelkollision, unregelmaessige Krater-Deformation, Impact-Decals, Bodenschicht-Gradient, Oberflaechenberechnung
 - `src/game/systems/WeatherSystem.js`
@@ -271,7 +275,8 @@ npm run preview
 - `Phase 2` abgeschlossen: Skillshots + Combo-Meta + HUD-Scoring
 - `Phase 3` abgeschlossen: Turn-Mutatoren + Sudden-Death-Skalierung
 - `Phase 4` abgeschlossen: Finisher-Inszenierung + Reduced Motion
-- `Phase 5+` offen: Crates/Events, weitere Meta-Progression
+- `Phase 5` abgeschlossen: lokale Telemetrie + QA-Overlay-Daten
+- `Phase 6+` offen: Crates/Events, weitere Meta-Progression
 
 ## Troubleshooting
 
