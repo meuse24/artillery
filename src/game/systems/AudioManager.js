@@ -3,8 +3,13 @@ export class AudioManager {
     this.context = null;
     this.unlocked = false;
     this.windAmount = 0;
-    this.windOsc = null;
+    this.windSource = null;
+    this.windHighpass = null;
+    this.windLowpass = null;
     this.windGain = null;
+    this.windLfo = null;
+    this.windLfoGain = null;
+    this.noiseBuffer = null;
   }
 
   unlock() {
@@ -34,6 +39,26 @@ export class AudioManager {
     return true;
   }
 
+  createNoiseBuffer() {
+    if (!this.context || this.noiseBuffer) {
+      return;
+    }
+
+    const sampleRate = this.context.sampleRate;
+    const length = sampleRate * 2;
+    const buffer = this.context.createBuffer(1, length, sampleRate);
+    const channel = buffer.getChannelData(0);
+    let last = 0;
+
+    for (let i = 0; i < length; i += 1) {
+      const white = Math.random() * 2 - 1;
+      last = last * 0.985 + white * 0.16;
+      channel[i] = last;
+    }
+
+    this.noiseBuffer = buffer;
+  }
+
   tone({ frequency, duration, type = 'sine', gain = 0.03, delay = 0 }) {
     if (!this.context || !this.unlocked || this.context.state !== 'running') {
       return;
@@ -57,18 +82,46 @@ export class AudioManager {
   }
 
   ensureWindBed() {
-    if (!this.context || this.windOsc) {
+    if (!this.context || this.windSource) {
       return;
     }
 
-    this.windOsc = this.context.createOscillator();
+    this.createNoiseBuffer();
+
+    this.windSource = this.context.createBufferSource();
+    this.windSource.buffer = this.noiseBuffer;
+    this.windSource.loop = true;
+
+    this.windHighpass = this.context.createBiquadFilter();
+    this.windHighpass.type = 'highpass';
+    this.windHighpass.frequency.setValueAtTime(260, this.context.currentTime);
+    this.windHighpass.Q.value = 0.6;
+
+    this.windLowpass = this.context.createBiquadFilter();
+    this.windLowpass.type = 'lowpass';
+    this.windLowpass.frequency.setValueAtTime(1200, this.context.currentTime);
+    this.windLowpass.Q.value = 0.5;
+
     this.windGain = this.context.createGain();
-    this.windOsc.type = 'triangle';
-    this.windOsc.frequency.setValueAtTime(110, this.context.currentTime);
     this.windGain.gain.setValueAtTime(0.0001, this.context.currentTime);
-    this.windOsc.connect(this.windGain);
+
+    this.windLfo = this.context.createOscillator();
+    this.windLfo.type = 'sine';
+    this.windLfo.frequency.setValueAtTime(0.17, this.context.currentTime);
+
+    this.windLfoGain = this.context.createGain();
+    this.windLfoGain.gain.setValueAtTime(0.0007, this.context.currentTime);
+
+    this.windSource.connect(this.windHighpass);
+    this.windHighpass.connect(this.windLowpass);
+    this.windLowpass.connect(this.windGain);
     this.windGain.connect(this.context.destination);
-    this.windOsc.start();
+
+    this.windLfo.connect(this.windLfoGain);
+    this.windLfoGain.connect(this.windGain.gain);
+
+    this.windSource.start();
+    this.windLfo.start();
   }
 
   setWind(amount) {
@@ -80,10 +133,21 @@ export class AudioManager {
     this.ensureWindBed();
     const strength = Math.min(1, Math.abs(amount) / 50);
     const now = this.context.currentTime;
-    this.windOsc.frequency.cancelScheduledValues(now);
-    this.windOsc.frequency.linearRampToValueAtTime(90 + strength * 120, now + 0.18);
+
+    this.windHighpass.frequency.cancelScheduledValues(now);
+    this.windHighpass.frequency.linearRampToValueAtTime(220 + strength * 260, now + 0.24);
+
+    this.windLowpass.frequency.cancelScheduledValues(now);
+    this.windLowpass.frequency.linearRampToValueAtTime(900 + strength * 1900, now + 0.28);
+
     this.windGain.gain.cancelScheduledValues(now);
-    this.windGain.gain.linearRampToValueAtTime(0.0001 + strength * 0.012, now + 0.22);
+    this.windGain.gain.linearRampToValueAtTime(0.00008 + strength * 0.0046, now + 0.3);
+
+    this.windLfo.frequency.cancelScheduledValues(now);
+    this.windLfo.frequency.linearRampToValueAtTime(0.14 + strength * 0.2, now + 0.24);
+
+    this.windLfoGain.gain.cancelScheduledValues(now);
+    this.windLfoGain.gain.linearRampToValueAtTime(0.0003 + strength * 0.0012, now + 0.24);
   }
 
   playShot(weapon) {

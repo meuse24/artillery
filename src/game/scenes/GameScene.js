@@ -176,9 +176,17 @@ export class GameScene extends Phaser.Scene {
     return this.currentMode === 'cpu' ? 'Solo vs CPU' : 'Local Duel';
   }
 
-  toggleMode() {
-    this.currentMode = this.currentMode === 'cpu' ? 'local' : 'cpu';
+  setMode(mode) {
+    if (mode !== 'cpu' && mode !== 'local') {
+      return;
+    }
+
+    this.currentMode = mode;
     this.cpuState = null;
+  }
+
+  toggleMode() {
+    this.setMode(this.currentMode === 'cpu' ? 'local' : 'cpu');
   }
 
   isCpuControlledPlayer(index = this.turnIndex) {
@@ -543,18 +551,20 @@ export class GameScene extends Phaser.Scene {
       type: 'start',
       title: 'ARTILLERY',
       body: [
-        this.getModeLabel(),
-        '',
-        'Objective',
-        OBJECTIVE_TEXT,
-        '',
-        'Workflow',
-        '1. Move your tank a short distance.',
-        '2. Confirm the handoff.',
-        '3. Aim, set power, pick a weapon and fire.'
+        'Wind bends every shot.',
+        'Crater the hill. Finish the tank.'
       ].join('\n'),
-      scoreboard: this.buildScoreboardText(),
-      prompt: 'Press Space or Enter to start the round  |  M switch mode  |  H for Help'
+      scoreboard: PLAYER_NAMES.map((name) => `${name}: ${this.highscores[name] ?? 0} wins`).join('\n'),
+      scores: PLAYER_NAMES.map((name) => ({
+        name,
+        wins: this.highscores[name] ?? 0
+      })),
+      kicker: 'DESTRUCTIBLE TANK DUEL',
+      tagline: 'Read the wind. Break the hill.',
+      modeLabel: this.getModeLabel(),
+      modeKey: this.currentMode,
+      hint: 'H how to play  |  M switch mode',
+      prompt: 'Press Space or Enter to start'
     });
   }
 

@@ -30,7 +30,7 @@ Wichtig fuer das Match:
 - `Solo vs CPU`: `Amber` gegen den CPU-gesteuerten `Cyan`
 - `Local Duel`: zwei Spieler an einer Tastatur
 
-Der Modus kann auf dem Startscreen und nach einer Runde mit `M` gewechselt werden.
+Der Modus kann auf dem Startscreen per Klick auf die Modusflaeche oder per `M` gewechselt werden.
 
 ## Rundenablauf
 
@@ -48,7 +48,10 @@ Jeder Zug hat zwei klar getrennte Phasen:
 
 Zusatz-Flow:
 
-- Start mit Attract-Screen
+- Start mit Attract-Screen:
+  - klickbare Moduswahl
+  - Highscore als zwei Spieler-Karten
+  - klarer Start-Call-to-Action
 - Overlay beim Spielerwechsel
 - ausfuehrlicher Help-Screen
 - Game-Over-Screen mit Sieger und Rundenstatistiken
@@ -92,10 +95,12 @@ Wind ist bewusst mehrfach visualisiert, damit er im Spielfluss sofort lesbar ist
 
 Das Spiel verwendet ein kleines generiertes Web-Audio-System statt externer Sounddateien:
 
-- Windbett
+- dezentes Windbett auf Basis von gefiltertem Rauschen
 - Waffen-Schuesse
 - Explosionen
 - Trefferfeedback
+
+Der fruehere konstante Windton wurde durch eine leisere, modulierte Ambience ersetzt.
 
 Wichtiger Browser-Hinweis:
 
@@ -135,7 +140,8 @@ npm run preview
 - drei unterschiedliche Waffen
 - Wind als echter Gameplay-Faktor
 - Flugbahn-Vorschau in der Aim-Phase
-- Startscreen, Help-Screen, Turn-Handoff und Game-Over-Flow
+- Startscreen mit klickbarer Moduswahl, Score-Karten und CTA
+- Help-Screen, Turn-Handoff und Game-Over-Flow
 - CPU-Gegner mit einfacher ballistischer Zielsuche
 - Rundenstatistiken und persistenter Highscore via `localStorage`
 - animierte HP-Bars, Schadenstexte und Trefferfeedback
@@ -151,9 +157,9 @@ npm run preview
 - `src/game/scenes/BootScene.js`
   - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
 - `src/game/scenes/GameScene.js`
-  - Kern des Spiels: Match-Flow, Input, Projektilsimulation, Explosionen, CPU-Zuege, Kamera, Windanzeige, Overlays, Stats
+  - Kern des Spiels: Match-Flow, Input, Projektilsimulation, Explosionen, CPU-Zuege, Kamera, Windanzeige, Overlays, Stats und Modusumschaltung
 - `src/game/scenes/UIScene.js`
-  - HUD, HP-Bars, Controls-Hinweise, Overlay-Layout, responsive Anpassungen
+  - HUD, HP-Bars, Controls-Hinweise, Overlay-Layout, klickbare Startscreen-Elemente und responsive Anpassungen
 - `src/game/systems/Terrain.js`
   - Terrain-Generierung, Pixelkollision, Krater-Deformation, Oberflaechenberechnung, Material-Look
 - `src/game/entities/Tank.js`
@@ -161,7 +167,7 @@ npm run preview
 - `src/game/weapons.js`
   - Waffenprofile fuer Mechanik und VFX/SFX-Identity
 - `src/game/systems/AudioManager.js`
-  - Web-Audio-Synthese und Audio-Unlock nach User-Geste
+  - Web-Audio-Synthese, dezente Wind-Ambience und Audio-Unlock nach User-Geste
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
 
