@@ -233,6 +233,8 @@ npm run preview
   - enthaelt Finisher-Inszenierung und Reduced-Motion-Schalter fuer Accessibility
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
+  - Help-Overlay als eigener Dialog mit 2-Spalten-Layout, hartem Clip und Scrollbar innerhalb des Dialograhmens
+  - kompakter Turn-/Spielerwechsel-Dialog mit separatem, kollisionsfreiem Textlayout
 - `src/game/config/sceneContracts.js`
   - zentrale Scene-Keys (`boot/game/ui`) und Game->UI Event-Namen (`hud:update`, `overlay:update`, ...)
 - `src/game/arcade/arcadeConfig.js`
@@ -310,6 +312,10 @@ npm run preview
   - `VisualFxPool` eingefuehrt fuer haeufige, kurzlebige VFX-Objekte
   - `GameScene` nutzt Pooling fuer Damage-Text, Impact-Callouts, Debris und Impact-Shards
   - reduziert create/destroy-Spitzen in Explosion-lastigen Spielsituationen
+- `Refactor Phase 5` abgeschlossen (Overlay-Dialoge):
+  - Help-Dialog von Grund auf mit eigener Geometrie neu aufgebaut
+  - Scrollbereich, Masken und Scrollbar sind fest an den Dialog-Content gebunden
+  - Turn-Dialog kompakter gemacht und Text-Ueberlagerungen im Spielerwechsel beseitigt
 
 ## Troubleshooting
 

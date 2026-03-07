@@ -213,7 +213,7 @@ export class UIScene extends Phaser.Scene {
     this.helpMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
     this.helpTextMask = this.helpMaskGraphics.createGeometryMask();
     // Legacy cover graphics (kept for compatibility, currently unused for clipping)
-    this.helpClip = this.add.graphics().setDepth(123);
+    this.helpClip = this.add.graphics().setDepth(121.5);
     // Scrollbar drawn above clip (depth 125)
     this.helpScrollbar = this.add.graphics().setDepth(125).setVisible(false);
 
@@ -560,11 +560,82 @@ export class UIScene extends Phaser.Scene {
   }
 
   // ── Help scroll ───────────────────────────────────────────────────────────────
-  getHelpViewport() {
+  getHelpDialogLayout() {
+    const panelLeft = this.overlayPanel.x - this.overlayPanel.width * 0.5;
+    const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+    const sidePad = this.compactLayout ? 36 : 44;
+    const headerPad = this.compactLayout ? 96 : 104;
+    const footerPad = this.compactLayout ? 80 : 86;
+    const contentX = panelLeft + sidePad;
+    const contentY = panelTop + headerPad;
+    const contentWidth = this.overlayPanel.width - sidePad * 2;
+    const contentHeight = this.overlayPanel.height - headerPad - footerPad;
+    const innerPad = this.compactLayout ? 12 : 14;
+    const gap = this.compactLayout ? 24 : 30;
+    const scrollbarGap = 10;
+    const scrollbarWidth = 6;
+    const textLaneWidth = contentWidth - innerPad * 2 - scrollbarGap - scrollbarWidth;
+    const leftColumnWidth = Math.floor(textLaneWidth * (this.compactLayout ? 0.57 : 0.59));
+    const rightColumnWidth = textLaneWidth - leftColumnWidth - gap;
+    const leftX = contentX + innerPad;
+    const rightX = leftX + leftColumnWidth + gap;
+    const textTop = contentY + innerPad;
+    const clipHeight = contentHeight - innerPad * 2;
+    const dividerX = rightX - Math.floor(gap * 0.5);
+    const scrollbarX = contentX + contentWidth - innerPad - scrollbarWidth;
+    const promptY = panelTop + this.overlayPanel.height - (this.compactLayout ? 28 : 34);
+    const titleY = panelTop + (this.compactLayout ? 56 : 64);
+
     return {
-      top: GAME_HEIGHT * 0.5 - 128,
-      height: 304
+      contentX,
+      contentY,
+      contentWidth,
+      contentHeight,
+      leftX,
+      rightX,
+      leftColumnWidth,
+      rightColumnWidth,
+      textTop,
+      clipHeight,
+      dividerX,
+      scrollbarX,
+      promptY,
+      titleY
     };
+  }
+
+  getHelpViewport() {
+    const layout = this.helpLayout ?? this.getHelpDialogLayout();
+    return {
+      top: layout.textTop,
+      height: layout.clipHeight
+    };
+  }
+
+  layoutHelpDialog(resetScroll = false) {
+    this.helpLayout = this.getHelpDialogLayout();
+    const layout = this.helpLayout;
+
+    this.overlayTitle.y = layout.titleY;
+    this.overlayBody.setPosition(layout.leftX, layout.textTop);
+    this.overlayScoreboard.setPosition(layout.rightX, layout.textTop);
+    this.overlayBody.setWordWrapWidth(layout.leftColumnWidth, true);
+    this.overlayScoreboard.setWordWrapWidth(layout.rightColumnWidth, true);
+    this.overlayPrompt.y = layout.promptY;
+
+    if (resetScroll) {
+      this.helpScrollY = 0;
+    }
+
+    const viewport = this.getHelpViewport();
+    const textH = Math.max(this.overlayBody.height, this.overlayScoreboard.height);
+    this.helpMaxScroll = Math.max(0, textH - viewport.height);
+    this.helpScrollY = Phaser.Math.Clamp(this.helpScrollY, 0, this.helpMaxScroll);
+    this.helpBodyBaseY = viewport.top;
+    this.overlayBody.y = this.helpBodyBaseY - this.helpScrollY;
+    this.overlayScoreboard.y = this.helpBodyBaseY - this.helpScrollY;
+    this.drawHelpClip();
+    this.drawHelpScrollbar();
   }
 
   scrollHelp(deltaY) {
@@ -584,7 +655,8 @@ export class UIScene extends Phaser.Scene {
       return;
     }
     this.helpScrollbar.setVisible(true);
-    const x = GAME_WIDTH * 0.5 + 416;
+    const layout = this.helpLayout ?? this.getHelpDialogLayout();
+    const x = layout.scrollbarX;
     const viewport = this.getHelpViewport();
     const trackY = viewport.top;
     const trackH = viewport.height;
@@ -607,15 +679,35 @@ export class UIScene extends Phaser.Scene {
     }
 
     const viewport = this.getHelpViewport();
-    const contentTop = viewport.top;
-    const contentH = viewport.height;
-    const contentPadX = 34;
-    const contentL = this.overlayPanel.x - this.overlayPanel.width * 0.5 + contentPadX;
-    const contentW = this.overlayPanel.width - contentPadX * 2;
+    const layout = this.helpLayout ?? this.getHelpDialogLayout();
 
-    // Strict clip region for both help columns.
+    // Dedicated dialog content frame.
+    this.helpClip.fillStyle(0x071721, 0.94);
+    this.helpClip.fillRoundedRect(
+      layout.contentX,
+      layout.contentY,
+      layout.contentWidth,
+      layout.contentHeight,
+      14
+    );
+    this.helpClip.lineStyle(2, 0xffffff, 0.1);
+    this.helpClip.strokeRoundedRect(
+      layout.contentX,
+      layout.contentY,
+      layout.contentWidth,
+      layout.contentHeight,
+      14
+    );
+    this.helpClip.lineStyle(1, 0xffffff, 0.14);
+    this.helpClip.beginPath();
+    this.helpClip.moveTo(layout.dividerX, viewport.top + 6);
+    this.helpClip.lineTo(layout.dividerX, viewport.top + viewport.height - 6);
+    this.helpClip.strokePath();
+
+    // Two explicit clip areas for left and right column.
     this.helpMaskGraphics.fillStyle(0xffffff, 1);
-    this.helpMaskGraphics.fillRect(contentL, contentTop, contentW, contentH);
+    this.helpMaskGraphics.fillRect(layout.leftX, viewport.top, layout.leftColumnWidth, viewport.height);
+    this.helpMaskGraphics.fillRect(layout.rightX, viewport.top, layout.rightColumnWidth, viewport.height);
     this.overlayBody.setMask(this.helpTextMask);
     this.overlayScoreboard.setMask(this.helpTextMask);
   }
@@ -788,10 +880,29 @@ export class UIScene extends Phaser.Scene {
     this.centerText.setWordWrapWidth(h.centerW - 16, true);
     this.windText.setWordWrapWidth(h.centerW - 16, true);
     this.objectiveText.setWordWrapWidth(h.objectiveW - 24, true);
-    this.overlayPanel.width = this.compactLayout ? 940 : 860;
-    this.overlayPanel.height = this.compactLayout ? 560 : 520;
-    this.overlayBody.setWordWrapWidth(this.compactLayout ? 470 : 420, true);
-    this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
+    const activeOverlayType = this.gameScene?.overlayState?.type;
+    if (activeOverlayType === 'help') {
+      this.overlayPanel.width = this.compactLayout ? 1020 : 1120;
+      this.overlayPanel.height = this.compactLayout ? 600 : 560;
+      this.layoutHelpDialog(false);
+    } else if (activeOverlayType === 'turn') {
+      this.overlayPanel.width = this.compactLayout ? 660 : 620;
+      this.overlayPanel.height = this.compactLayout ? 330 : 300;
+      const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+      const sidePad = this.compactLayout ? 34 : 40;
+      const textX = this.overlayPanel.x - this.overlayPanel.width * 0.5 + sidePad;
+      const textW = this.overlayPanel.width - sidePad * 2;
+      this.overlayTitle.y = panelTop + (this.compactLayout ? 58 : 62);
+      this.overlayBody.setPosition(textX, panelTop + (this.compactLayout ? 114 : 120));
+      this.overlayBody.setWordWrapWidth(textW, true);
+      this.overlayPrompt.setPosition(this.overlayPanel.x, panelTop + this.overlayPanel.height - (this.compactLayout ? 32 : 34));
+      this.overlayPrompt.setWordWrapWidth(textW, true);
+    } else {
+      this.overlayPanel.width = this.compactLayout ? 940 : 860;
+      this.overlayPanel.height = this.compactLayout ? 560 : 520;
+      this.overlayBody.setWordWrapWidth(this.compactLayout ? 470 : 420, true);
+      this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
+    }
     this.startTagline.setFontSize(this.compactLayout ? '21px' : '24px');
     this.startModeCpuText.setFontSize(this.compactLayout ? '14px' : '15px');
     this.startModeLocalText.setFontSize(this.compactLayout ? '14px' : '15px');
@@ -805,8 +916,7 @@ export class UIScene extends Phaser.Scene {
     this.drawFrame();
     this.drawHpBars(this.displayHp[0], this.displayHp[1]);
     if (this.gameScene?.overlayState?.type === 'help') {
-      this.drawHelpClip();
-      this.drawHelpScrollbar();
+      this.layoutHelpDialog(false);
     }
     this.updateOrientationGuard();
   }
@@ -983,12 +1093,16 @@ export class UIScene extends Phaser.Scene {
     const visible = Boolean(overlay);
     const isStart = Boolean(overlay && overlay.type === 'start');
     const isTurn = Boolean(overlay && overlay.type === 'turn');
+    const isHelp = Boolean(overlay && overlay.type === 'help');
     this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
     this.tweens.killTweensOf(this.startOverlayContent);
 
-    // Reset help scroll when overlay closes or changes
+    // Reset help state when overlay closes or changes away from help
     if (!visible || (overlay && overlay.type !== 'help')) {
       this.helpScrollY = 0;
+      this.helpMaxScroll = 0;
+      this.helpBodyBaseY = 0;
+      this.helpLayout = null;
       this.helpScrollbar.setVisible(false);
       this.helpMaskGraphics.clear();
       this.overlayBody.clearMask();
@@ -1029,6 +1143,7 @@ export class UIScene extends Phaser.Scene {
       this.overlayContent.forEach((item) => item.setAlpha(0));
       this.startDeco.setAlpha(0);
       this.startOverlayContent.forEach((item) => item.setAlpha(0));
+      this.helpLayout = null;
       return;
     }
 
@@ -1058,16 +1173,30 @@ export class UIScene extends Phaser.Scene {
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
     this.overlayTitle.setFontSize(
-      overlay.type === 'start' ? '78px' : overlay.type === 'turn' ? '34px' : '40px'
+      overlay.type === 'start' ? '78px' : overlay.type === 'turn' ? '36px' : '40px'
     );
     this.overlayTitle.setColor(overlay.type === 'start' ? '#f2b84b' : '#f4f1df');
-    this.overlayPrompt.setColor(overlay.type === 'start' ? '#f4f1df' : '#f2b84b');
-    this.overlayPrompt.setFontSize(overlay.type === 'start' ? '22px' : overlay.type === 'turn' ? '18px' : '20px');
+    this.overlayPrompt.setColor(
+      overlay.type === 'start'
+        ? '#f4f1df'
+        : overlay.type === 'turn'
+          ? '#f2b84b'
+          : '#f2b84b'
+    );
+    this.overlayPrompt.setFontSize(overlay.type === 'start' ? '22px' : overlay.type === 'turn' ? '17px' : '20px');
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
-    this.overlayBody.setFontSize(overlay.type === 'start' ? '20px' : overlay.type === 'turn' ? '20px' : '17px');
+    if (overlay.type === 'help') {
+      this.overlayBody.setColor('#f7f3e6');
+      this.overlayScoreboard.setColor('#94f3ec');
+    }
+    this.overlayBody.setFontSize(overlay.type === 'start' ? '20px' : overlay.type === 'turn' ? '18px' : '17px');
     this.overlayScoreboard.setFontSize('17px');
-    this.overlayPanel.setFillStyle(overlay.type === 'start' ? 0x071018 : 0x09131b, overlay.type === 'start' ? 0.98 : 0.96);
+    this.overlayShade.setFillStyle(0x04070a, 0.72);
+    this.overlayPanel.setFillStyle(
+      overlay.type === 'start' ? 0x071018 : 0x09131b,
+      overlay.type === 'start' ? 0.98 : 0.96
+    );
     this.overlayPanel.setStrokeStyle(2, 0xffffff, overlay.type === 'start' ? 0.1 : 0.14);
 
     // Reset all alphas for fade-in
@@ -1084,13 +1213,17 @@ export class UIScene extends Phaser.Scene {
     this.overlayPanel.width = isStart
       ? (this.compactLayout ? 960 : 900)
       : isTurn
-        ? (this.compactLayout ? 720 : 680)
-        : this.compactLayout ? 940 : 860;
+        ? (this.compactLayout ? 660 : 620)
+        : isHelp
+          ? (this.compactLayout ? 1020 : 1120)
+          : this.compactLayout ? 940 : 860;
     this.overlayPanel.height = isStart
       ? (this.compactLayout ? 548 : 520)
       : isTurn
-        ? (this.compactLayout ? 360 : 320)
-        : this.compactLayout ? 560 : 520;
+        ? (this.compactLayout ? 330 : 300)
+        : isHelp
+          ? (this.compactLayout ? 600 : 560)
+          : this.compactLayout ? 560 : 520;
     this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
 
     if (isStart) {
@@ -1146,33 +1279,36 @@ export class UIScene extends Phaser.Scene {
       this.drawStartDecor();
     } else {
       // Non-start overlays (turn, gameover, help)
-      this.overlayTitle.y = isTurn ? GAME_HEIGHT * 0.5 - 100 : GAME_HEIGHT * 0.5 - 188;
-      this.overlayBody.x = isTurn ? GAME_WIDTH * 0.5 - 280 : GAME_WIDTH * 0.5 - 360;
-      this.overlayScoreboard.x = GAME_WIDTH * 0.5 + 110;
-      this.overlayBody.setWordWrapWidth(
-        isTurn ? (this.compactLayout ? 560 : 520) : this.compactLayout ? 470 : 420,
-        true
-      );
-      this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
-      this.overlayPrompt.y = isTurn ? GAME_HEIGHT * 0.5 + 108 : GAME_HEIGHT * 0.5 + 214;
+      const helpLayout = isHelp ? this.getHelpDialogLayout() : null;
+      if (isTurn) {
+        const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+        const sidePad = this.compactLayout ? 34 : 40;
+        const textX = this.overlayPanel.x - this.overlayPanel.width * 0.5 + sidePad;
+        const textW = this.overlayPanel.width - sidePad * 2;
+        this.overlayTitle.y = panelTop + (this.compactLayout ? 58 : 62);
+        this.overlayBody.x = textX;
+        this.overlayBody.y = panelTop + (this.compactLayout ? 114 : 120);
+        this.overlayBody.setWordWrapWidth(textW, true);
+        this.overlayPrompt.y = panelTop + this.overlayPanel.height - (this.compactLayout ? 32 : 34);
+        this.overlayPrompt.setWordWrapWidth(textW, true);
+        this.overlayScoreboard.x = GAME_WIDTH * 0.5 + 110;
+      } else {
+        this.overlayTitle.y = GAME_HEIGHT * 0.5 - 188;
+        this.overlayBody.x = isHelp ? helpLayout.leftX : GAME_WIDTH * 0.5 - 360;
+        this.overlayScoreboard.x = isHelp ? helpLayout.rightX : GAME_WIDTH * 0.5 + 110;
+        this.overlayBody.setWordWrapWidth(
+          isHelp ? helpLayout.leftColumnWidth : this.compactLayout ? 470 : 420,
+          true
+        );
+        this.overlayScoreboard.setWordWrapWidth(
+          isHelp ? helpLayout.rightColumnWidth : this.compactLayout ? 310 : 270,
+          true
+        );
+        this.overlayPrompt.y = GAME_HEIGHT * 0.5 + 214;
+      }
 
-      if (overlay.type === 'help') {
-        const viewport = this.getHelpViewport();
-        this.helpScrollY = 0;
-        this.helpBodyBaseY = viewport.top;
-        this.overlayBody.y = this.helpBodyBaseY;
-        this.overlayScoreboard.y = this.helpBodyBaseY;
-        this.overlayPrompt.y = GAME_HEIGHT * 0.5 + 226;
-        this.drawHelpClip();
-        // Compute scroll range after text is laid out (brief delay)
-        this.time.delayedCall(40, () => {
-          const textH = Math.max(this.overlayBody.height, this.overlayScoreboard.height);
-          this.helpMaxScroll = Math.max(0, textH - viewport.height);
-          this.drawHelpScrollbar();
-        });
-      } else if (isTurn) {
-        this.overlayBody.y = GAME_HEIGHT * 0.5 - 34;
-        this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;
+      if (isHelp) {
+        this.layoutHelpDialog(true);
       } else {
         this.overlayBody.y = GAME_HEIGHT * 0.5 - 128;
         this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;
