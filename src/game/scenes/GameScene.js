@@ -251,6 +251,11 @@ export class GameScene extends Phaser.Scene {
         if (multiplier > 1) {
           this.showTurnBanner(`${playerName} combo x${multiplier.toFixed(2)}`);
         }
+      }),
+      this.arcadeEvents.on(ARCADE_EVENTS.TURN_STARTED, ({ mutator }) => {
+        if (mutator) {
+          this.showTurnBanner(mutator);
+        }
       })
     ];
   }
@@ -695,6 +700,15 @@ export class GameScene extends Phaser.Scene {
     this.wind = this.rollWind();
     this.weather.rollCondition();
     this.weather.activate();
+    const startTurnEffects = this.mutatorSystem?.onTurnStart({
+      turnNumber: this.turnNumber,
+      playerName: this.getActivePlayer()?.name ?? '',
+      phase: this.turnPhase,
+      wind: this.wind
+    });
+    if (typeof startTurnEffects?.windOverride === 'number') {
+      this.wind = startTurnEffects.windOverride;
+    }
     this.ambientAccumulator = 0;
     this.stabilityAccumulator = 0;
     this.clearOverlay();
@@ -705,12 +719,6 @@ export class GameScene extends Phaser.Scene {
       mode: this.currentMode,
       weather: this.weather.getLabel(),
       firstPlayer: this.getActivePlayer()?.name ?? ''
-    });
-    this.arcadeEvents?.emit(ARCADE_EVENTS.TURN_STARTED, {
-      turnNumber: this.turnNumber,
-      playerName: this.getActivePlayer()?.name ?? '',
-      phase: this.turnPhase,
-      wind: this.wind
     });
     this.renderWindRibbon();
     this.markPredictionDirty();
@@ -784,6 +792,12 @@ export class GameScene extends Phaser.Scene {
     return this.wind > 0 ? 'Pushes shots to the right' : 'Pushes shots to the left';
   }
 
+  getGravityMultiplier() {
+    const weatherMult = this.weather?.gravityModifier() ?? 1;
+    const mutatorMult = this.mutatorSystem?.getGravityMultiplier() ?? 1;
+    return weatherMult * mutatorMult;
+  }
+
   positionWindsock() {
     const x = GAME_WIDTH * 0.5;
     const y = this.terrain.getSurfaceY(x);
@@ -830,6 +844,7 @@ export class GameScene extends Phaser.Scene {
 
   presentTurnOverlay() {
     const player = this.getActivePlayer();
+    const mutatorLabel = this.mutatorSystem?.getHudLabel();
     this.showTurnBanner(`${player.name} move phase`);
     this.audioManager.playTurn();
     this.showOverlay({
@@ -839,6 +854,7 @@ export class GameScene extends Phaser.Scene {
         this.isCpuControlledPlayer()
           ? 'CPU is checking wind, terrain and shot power.'
           : 'Pass the device to the next player.',
+        mutatorLabel ? `Mutator: ${mutatorLabel}` : '',
         '',
         'Phase 1: Move with keys or click/tap ground.',
         'Phase 2: Aim, set power, choose weapon, then fire.'
@@ -1006,7 +1022,7 @@ export class GameScene extends Phaser.Scene {
     let vx = Math.cos(launch.angle) * power * weapon.speedFactor;
     let vy = Math.sin(launch.angle) * power * weapon.speedFactor;
 
-    const gravMod = this.weather.gravityModifier();
+    const gravMod = this.getGravityMultiplier();
     for (let elapsed = 0; elapsed < 3.8; elapsed += 0.06) {
       vx += this.wind * weapon.windScale * 0.06;
       vy += GRAVITY * weapon.gravityScale * gravMod * 0.06;
@@ -1567,7 +1583,7 @@ export class GameScene extends Phaser.Scene {
 
       projectile.age += dt;
       projectile.vx += this.wind * projectile.weapon.windScale * dt;
-      projectile.vy += GRAVITY * projectile.weapon.gravityScale * this.weather.gravityModifier() * dt;
+      projectile.vy += GRAVITY * projectile.weapon.gravityScale * this.getGravityMultiplier() * dt;
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.trailPoints.push({ x: projectile.x, y: projectile.y, age: projectile.age });
@@ -1779,6 +1795,7 @@ export class GameScene extends Phaser.Scene {
 
     this.particles.explode(Math.floor(weapon.blastRadius * 0.9), x, y);
     let bestHitDistance = Number.POSITIVE_INFINITY;
+    const damageMultiplier = this.mutatorSystem?.getDamageMultiplier() ?? 1;
 
     for (const tank of this.players) {
       const wasAlive = tank.isAlive();
@@ -1786,7 +1803,7 @@ export class GameScene extends Phaser.Scene {
       const distance = Phaser.Math.Distance.Between(x, y, tank.x, tank.y - 2);
       const maxDistance = weapon.blastRadius + 28;
       if (distance <= maxDistance) {
-        const damage = Math.round(weapon.damage * (1 - distance / maxDistance));
+        const damage = Math.round(weapon.damage * (1 - distance / maxDistance) * damageMultiplier);
         tank.applyDamage(damage);
         this.spawnDamageText(tank.x, tank.y - 26, damage, weapon.damageText);
         this.audioManager.playHit(damage);
@@ -2090,7 +2107,7 @@ export class GameScene extends Phaser.Scene {
     const step = 0.065;
     for (let elapsed = 0; elapsed < weapon.predictionTime; elapsed += step) {
       vx += this.wind * weapon.windScale * step;
-      vy += GRAVITY * weapon.gravityScale * step;
+      vy += GRAVITY * weapon.gravityScale * this.getGravityMultiplier() * step;
       x += vx * step;
       y += vy * step;
 

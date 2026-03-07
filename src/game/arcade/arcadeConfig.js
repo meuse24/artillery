@@ -4,7 +4,7 @@ export const ARCADE_CONFIG = Object.freeze({
     mutatorSystem: true,
     phase2Skillshots: true,
     phase2ComboMultiplier: true,
-    phase3TurnMutators: false
+    phase3TurnMutators: true
   },
   scoring: {
     baseDamagePointFactor: 10,
@@ -19,6 +19,13 @@ export const ARCADE_CONFIG = Object.freeze({
     directHitDistance: 16,
     longShotDistance: 420,
     lastSecondThreshold: 3
+  },
+  mutators: {
+    turnInterval: 2,
+    lowGravityMultiplier: 0.82,
+    windPulseMultiplier: 1.3,
+    suddenDeathTurn: 12,
+    suddenDeathDamageMultiplier: 1.25
   },
   limits: {
     recentEvents: 120,

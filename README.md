@@ -214,6 +214,7 @@ npm run preview
 - generiertes Audio ohne externe Assets
 - Phase-1-Arcade-Foundation: Event-Bus, konfigurierbare Feature-Flags, getrennte Scoring-/Mutator-Systeme als Erweiterungsschicht
 - Phase-2-Arcade-Scoring: Combo-Multiplikator, Skillshots (`DIRECT HIT`, `BANK SHOT`, `LONG SHOT`, `LAST SECOND`) und Live-Score im HUD
+- Phase-3-Mutatoren: turn-basierte Modifikatoren (`Low Gravity`, `Wind Pulse`) plus `Sudden Death` Damage-Scaling ab spaeter Runde
 
 ## Architektur
 
@@ -237,7 +238,8 @@ npm run preview
   - konsumiert Arcade-Events und fuehrt Round-Metriken getrennt vom Core-Loop
   - berechnet Combo-Multiplikator, Skillshot-Boni und HUD-Feed
 - `src/game/systems/MutatorSystem.js`
-  - Einstiegspunkt fuer spaetere Turn-/Match-Mutatoren (Phase 3)
+  - waehlt und verwaltet aktive Turn-Mutatoren
+  - beeinflusst Wind, Schwerkraft und Damage-Multiplikatoren
 - `src/game/systems/Terrain.js`
   - Terrain-Generierung mit vier Presets, Pixelkollision, unregelmaessige Krater-Deformation, Impact-Decals, Bodenschicht-Gradient, Oberflaechenberechnung
 - `src/game/systems/WeatherSystem.js`
@@ -265,7 +267,8 @@ npm run preview
 
 - `Phase 1` abgeschlossen: Arcade-Foundation (Events, Config, Scoring-/Mutator-Systeme, Lint-Workflow)
 - `Phase 2` abgeschlossen: Skillshots + Combo-Meta + HUD-Scoring
-- `Phase 3+` offen: echte Match-Mutatoren, Crates/Events, Finisher-Ausbau
+- `Phase 3` abgeschlossen: Turn-Mutatoren + Sudden-Death-Skalierung
+- `Phase 4+` offen: Crates/Events, Finisher-Ausbau, weitere Meta-Progression
 
 ## Troubleshooting
 
