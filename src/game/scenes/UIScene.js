@@ -538,12 +538,13 @@ export class UIScene extends Phaser.Scene {
     }
     this.lastHudKey = hudKey;
 
+    const weatherTag = state.weather ? `  |  ${state.weather}` : '';
     this.centerText.setText(
       state.gameOver
         ? state.winner
           ? `${state.winner} wins  |  Press R for a new map`
           : 'Draw  |  Press R for a new map'
-        : `${state.mode}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
+        : `${state.mode}${weatherTag}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
     );
     this.controlsText.setText(
       state.gameOver

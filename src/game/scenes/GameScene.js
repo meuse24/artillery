@@ -18,6 +18,7 @@ import { AudioManager } from '../systems/AudioManager.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
+import { WeatherSystem } from '../systems/WeatherSystem.js';
 
 const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
 const ROUND_STAT_TEMPLATE = () => ({
@@ -54,6 +55,7 @@ export class GameScene extends Phaser.Scene {
     this.predictionVisible = false;
     this.cameraFocusTween = null;
     this.terrain = new Terrain(this, GAME_WIDTH, GAME_HEIGHT);
+    this.weather = new WeatherSystem(this);
     this.projectiles = [];
     // One emitter handles muzzle burst, split burst and explosion sparks.
     this.particles = this.add.particles(0, 0, 'particle-dot', {
@@ -463,6 +465,8 @@ export class GameScene extends Phaser.Scene {
     this.gameOver = false;
     this.winner = null;
     this.wind = this.rollWind();
+    this.weather.rollCondition();
+    this.weather.activate();
     this.ambientAccumulator = 0;
     this.stabilityAccumulator = 0;
     this.clearOverlay();
@@ -763,9 +767,10 @@ export class GameScene extends Phaser.Scene {
     let vx = Math.cos(launch.angle) * power * weapon.speedFactor;
     let vy = Math.sin(launch.angle) * power * weapon.speedFactor;
 
+    const gravMod = this.weather.gravityModifier();
     for (let elapsed = 0; elapsed < 3.8; elapsed += 0.06) {
       vx += this.wind * weapon.windScale * 0.06;
-      vy += GRAVITY * weapon.gravityScale * 0.06;
+      vy += GRAVITY * weapon.gravityScale * gravMod * 0.06;
       x += vx * 0.06;
       y += vy * 0.06;
 
@@ -898,6 +903,7 @@ export class GameScene extends Phaser.Scene {
       this.updateAmbient(this.ambientStep);
       this.ambientAccumulator -= this.ambientStep;
     }
+    this.weather.update(dt, this.wind);
 
     if (this.overlayActive()) {
       this.handleOverlayInput();
@@ -1261,7 +1267,7 @@ export class GameScene extends Phaser.Scene {
 
       projectile.age += dt;
       projectile.vx += this.wind * projectile.weapon.windScale * dt;
-      projectile.vy += GRAVITY * projectile.weapon.gravityScale * dt;
+      projectile.vy += GRAVITY * projectile.weapon.gravityScale * this.weather.gravityModifier() * dt;
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
       projectile.trailPoints.push({ x: projectile.x, y: projectile.y, age: projectile.age });
@@ -1578,7 +1584,7 @@ export class GameScene extends Phaser.Scene {
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
     this.turnTimer = TURN_TIME_LIMIT;
-    this.wind = this.rollWind();
+    this.wind = this.weather.applyStormWind(this.rollWind(), WIND_LIMIT);
     this.resolving = false;
     this.stabilityActive = true;
     this.cpuState = null;
@@ -1779,7 +1785,8 @@ export class GameScene extends Phaser.Scene {
       gameOver: this.gameOver,
       winner: this.winner?.name ?? null,
       turnTimer: Math.ceil(this.turnTimer ?? TURN_TIME_LIMIT),
-      isCpuTurn: this.isCpuControlledPlayer()
+      isCpuTurn: this.isCpuControlledPlayer(),
+      weather: this.weather?.getLabel() ?? ''
     };
   }
 
