@@ -213,6 +213,7 @@ npm run preview
 - responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten
 - generiertes Audio ohne externe Assets
 - Phase-1-Arcade-Foundation: Event-Bus, konfigurierbare Feature-Flags, getrennte Scoring-/Mutator-Systeme als Erweiterungsschicht
+- Phase-2-Arcade-Scoring: Combo-Multiplikator, Skillshots (`DIRECT HIT`, `BANK SHOT`, `LONG SHOT`, `LAST SECOND`) und Live-Score im HUD
 
 ## Architektur
 
@@ -234,6 +235,7 @@ npm run preview
   - kleiner pub/sub Event-Bus fuer Gameplay-Events
 - `src/game/systems/ArcadeScoringSystem.js`
   - konsumiert Arcade-Events und fuehrt Round-Metriken getrennt vom Core-Loop
+  - berechnet Combo-Multiplikator, Skillshot-Boni und HUD-Feed
 - `src/game/systems/MutatorSystem.js`
   - Einstiegspunkt fuer spaetere Turn-/Match-Mutatoren (Phase 3)
 - `src/game/systems/Terrain.js`
@@ -258,6 +260,12 @@ npm run preview
 - Die Flugbahn-Vorschau wird nicht in jedem Frame voll neu berechnet, sondern nur bei relevanten Aenderungen.
 - Ambient- und Stabilitaets-Updates laufen getaktet, um Dev-Mode-Overhead zu begrenzen.
 - Wetter-Updates fuer Regen laufen ebenfalls getaktet (30 Hz), Fog und Storm haben keinen laufenden Update-Overhead.
+
+## Phasenstatus
+
+- `Phase 1` abgeschlossen: Arcade-Foundation (Events, Config, Scoring-/Mutator-Systeme, Lint-Workflow)
+- `Phase 2` abgeschlossen: Skillshots + Combo-Meta + HUD-Scoring
+- `Phase 3+` offen: echte Match-Mutatoren, Crates/Events, Finisher-Ausbau
 
 ## Troubleshooting
 

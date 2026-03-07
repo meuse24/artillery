@@ -7,5 +7,8 @@ export const ARCADE_EVENTS = Object.freeze({
   PROJECTILE_BOUNCED: 'arcade:projectile-bounced',
   EXPLOSION_RESOLVED: 'arcade:explosion-resolved',
   DAMAGE_APPLIED: 'arcade:damage-applied',
-  TANK_DESTROYED: 'arcade:tank-destroyed'
+  TANK_DESTROYED: 'arcade:tank-destroyed',
+  SKILLSHOT_AWARDED: 'arcade:skillshot-awarded',
+  COMBO_UPDATED: 'arcade:combo-updated',
+  SCORE_UPDATED: 'arcade:score-updated'
 });

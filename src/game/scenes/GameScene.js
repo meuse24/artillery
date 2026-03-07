@@ -57,6 +57,7 @@ export class GameScene extends Phaser.Scene {
       eventBus: this.arcadeEvents,
       config: this.arcadeConfig
     });
+    this.installArcadeFeedback();
     this.currentMode = 'cpu';
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
@@ -219,6 +220,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   destroyArcadeSystems() {
+    if (this.arcadeFeedbackUnsubscribers) {
+      this.arcadeFeedbackUnsubscribers.forEach((off) => off());
+      this.arcadeFeedbackUnsubscribers = null;
+    }
     if (this.arcadeScoring) {
       this.arcadeScoring.destroy();
       this.arcadeScoring = null;
@@ -231,6 +236,23 @@ export class GameScene extends Phaser.Scene {
       this.arcadeEvents.destroy();
       this.arcadeEvents = null;
     }
+  }
+
+  installArcadeFeedback() {
+    if (!this.arcadeEvents) {
+      return;
+    }
+
+    this.arcadeFeedbackUnsubscribers = [
+      this.arcadeEvents.on(ARCADE_EVENTS.SKILLSHOT_AWARDED, ({ playerName, label }) => {
+        this.showTurnBanner(`${playerName} ${label}`);
+      }),
+      this.arcadeEvents.on(ARCADE_EVENTS.COMBO_UPDATED, ({ playerName, multiplier }) => {
+        if (multiplier > 1) {
+          this.showTurnBanner(`${playerName} combo x${multiplier.toFixed(2)}`);
+        }
+      })
+    ];
   }
 
   isTouchPointer(pointer) {
@@ -1431,6 +1453,9 @@ export class GameScene extends Phaser.Scene {
       turnNumber: this.turnNumber,
       shooterName: player.name,
       weaponId: weapon.id,
+      x: origin.x,
+      y: origin.y,
+      turnTimer: this.turnTimer,
       wind: this.wind,
       weather: this.weather.getLabel()
     });
@@ -1478,7 +1503,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  spawnBounceFlash(x, y, weapon) {
+  spawnBounceFlash(x, y, weapon, ownerName = null) {
     const flash = this.add.circle(x, y, 5, weapon.color, 0.72).setDepth(58);
     this.tweens.add({
       targets: flash,
@@ -1489,7 +1514,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.arcadeEvents?.emit(ARCADE_EVENTS.PROJECTILE_BOUNCED, {
       turnNumber: this.turnNumber,
-      ownerName: this.getActivePlayer()?.name ?? '',
+      ownerName,
       weaponId: weapon.id,
       x,
       y
@@ -1579,7 +1604,12 @@ export class GameScene extends Phaser.Scene {
           projectile.x = collision.x;
           projectile.y = collision.y - 5;
           projectile.bouncesLeft -= 1;
-          this.spawnBounceFlash(collision.x, collision.y, projectile.weapon);
+          this.spawnBounceFlash(
+            collision.x,
+            collision.y,
+            projectile.weapon,
+            projectile.owner?.name ?? null
+          );
           continue;
         }
 
@@ -1812,7 +1842,10 @@ export class GameScene extends Phaser.Scene {
       weaponId: weapon.id,
       x,
       y,
-      bestHitDistance
+      bestHitDistance,
+      impactDistanceFromShooter: owner
+        ? Phaser.Math.Distance.Between(x, y, owner.x, owner.y - 2)
+        : 0
     });
 
     this.checkWinState();

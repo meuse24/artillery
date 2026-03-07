@@ -907,6 +907,10 @@ export class UIScene extends Phaser.Scene {
 
     const left = state.players[0];
     const right = state.players[1];
+    const arcadePlayers = state.arcade?.players ?? {};
+    const leftArcade = arcadePlayers[left.name] ?? { score: 0, multiplier: 1 };
+    const rightArcade = arcadePlayers[right.name] ?? { score: 0, multiplier: 1 };
+    const latestFeed = state.arcade?.feed?.[0] ?? '';
     const activeColor = PLAYER_COLORS[state.activePlayerIndex];
     const windColor =
       state.windDirection === 'LEFT'
@@ -934,15 +938,23 @@ export class UIScene extends Phaser.Scene {
     });
     this.drawHpBars(this.displayHp[0], this.displayHp[1]);
 
-    this.leftText.setText(
-      `${left.name}  |  HP ${left.hp}  |  Wins ${left.wins}\nWeapon: ${left.weapon}`
-    );
-    this.rightText.setText(
-      `${right.name}  |  HP ${right.hp}  |  Wins ${right.wins}\nWeapon: ${right.weapon}`
-    );
+    this.leftText.setText([
+      `${left.name}  |  HP ${left.hp}  |  Wins ${left.wins}`,
+      `Weapon: ${left.weapon}`,
+      `Score: ${leftArcade.score ?? 0}  |  Combo x${(leftArcade.multiplier ?? 1).toFixed(2)}`
+    ].join('\n'));
+    this.rightText.setText([
+      `${right.name}  |  HP ${right.hp}  |  Wins ${right.wins}`,
+      `Weapon: ${right.weapon}`,
+      `Score: ${rightArcade.score ?? 0}  |  Combo x${(rightArcade.multiplier ?? 1).toFixed(2)}`
+    ].join('\n'));
     this.centerText.setColor(`rgb(${red}, ${green}, ${blue})`);
     this.windText.setColor(windColor);
-    this.objectiveText.setText(`Goal: ${state.objective}`);
+    this.objectiveText.setText(
+      latestFeed
+        ? `Goal: ${state.objective}\nArcade: ${latestFeed}`
+        : `Goal: ${state.objective}`
+    );
     this.windText.setText(
       `Wind ${state.windDirection}  |  ${state.windStrength}  |  ${Math.abs(state.wind).toFixed(0)}  |  ${state.windEffect}`
     );
