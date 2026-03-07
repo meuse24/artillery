@@ -5,6 +5,8 @@ import {
   GAME_HEIGHT,
   GAME_WIDTH,
   GRAVITY,
+  MAX_PITCH,
+  MIN_PITCH,
   MOVE_PER_TURN,
   MOVE_SPEED,
   PLAYER_COLORS,
@@ -54,6 +56,7 @@ export class GameScene extends Phaser.Scene {
     this.predictionDirty = true;
     this.predictionVisible = false;
     this.cameraFocusTween = null;
+    this.hitStopTimer = 0;
     this.terrain = new Terrain(this, GAME_WIDTH, GAME_HEIGHT);
     this.weather = new WeatherSystem(this);
     this.projectiles = [];
@@ -71,6 +74,10 @@ export class GameScene extends Phaser.Scene {
     this.prediction = this.add.graphics().setDepth(45);
     this.muzzleFlash = this.add.circle(0, 0, 8, 0xffd98c, 0).setDepth(55);
     this.windRibbon = this.add.graphics().setDepth(7);
+    this.impactFlash = this.add
+      .rectangle(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5, GAME_WIDTH, GAME_HEIGHT, 0xffe1a6, 0)
+      .setDepth(95);
+    this.impactFlash.setBlendMode(Phaser.BlendModes.ADD);
 
     this.inputKeys = this.input.keyboard.addKeys({
       left: Phaser.Input.Keyboard.KeyCodes.LEFT,
@@ -91,6 +98,97 @@ export class GameScene extends Phaser.Scene {
       r: Phaser.Input.Keyboard.KeyCodes.R
     });
 
+    // Mouse / pointer input
+    this.mouseMoveTarget = null;
+    this.touchAimState = null;
+    this.mobileFullscreenRequested = false;
+
+    this.input.on('pointermove', (pointer) => {
+      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
+      if (this.turnPhase !== 'aim') return;
+
+      if (this.touchAimState && this.isTouchPointer(pointer) && pointer.id === this.touchAimState.pointerId) {
+        this.mouseAim(pointer);
+        const player = this.getActivePlayer();
+        const deltaY = this.touchAimState.startY - pointer.worldY;
+        player.setPower(this.touchAimState.basePower + deltaY * 1.2);
+        this.touchAimState.moved =
+          this.touchAimState.moved ||
+          Math.abs(pointer.worldX - this.touchAimState.startX) > 6 ||
+          Math.abs(deltaY) > 6;
+        this.markPredictionDirty();
+        this.syncHud();
+        return;
+      }
+
+      this.mouseAim(pointer);
+    });
+
+    this.input.on('pointerdown', (pointer) => {
+      const touchPointer = this.isTouchPointer(pointer);
+      if (touchPointer) {
+        this.ensureMobileFullscreen();
+      }
+      if (!touchPointer && !pointer.leftButtonDown()) return;
+      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
+      if (this.turnPhase === 'aim') {
+        if (touchPointer) {
+          const player = this.getActivePlayer();
+          this.touchAimState = {
+            pointerId: pointer.id,
+            startX: pointer.worldX,
+            startY: pointer.worldY,
+            basePower: player.power,
+            moved: false
+          };
+          this.mouseAim(pointer);
+          this.syncHud();
+          return;
+        }
+        this.mouseAim(pointer);
+        this.fireActiveWeapon();
+        this.syncHud();
+      } else if (this.turnPhase === 'move') {
+        const player = this.getActivePlayer();
+        const tapDistance = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, player.x, player.y);
+        if (tapDistance < 44) {
+          this.mouseMoveTarget = null;
+          this.enterAimPhase();
+          return;
+        }
+        this.mouseMoveTarget = Phaser.Math.Clamp(pointer.worldX, 48, GAME_WIDTH - 48);
+      }
+    });
+
+    this.input.on('pointerup', (pointer) => {
+      if (!this.touchAimState) return;
+      if (!this.isTouchPointer(pointer)) return;
+      if (pointer.id !== this.touchAimState.pointerId) return;
+
+      const canResolve =
+        !this.overlayState &&
+        !this.gameOver &&
+        !this.resolving &&
+        !this.isCpuControlledPlayer() &&
+        this.turnPhase === 'aim';
+      if (canResolve) {
+        this.mouseAim(pointer);
+        this.fireActiveWeapon();
+        this.syncHud();
+      }
+      this.touchAimState = null;
+    });
+
+    this.input.on('wheel', (_ptr, _objs, _dx, deltaY) => {
+      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
+      if (this.turnPhase !== 'aim') return;
+      const player = this.getActivePlayer();
+      const dir = deltaY > 0 ? -1 : 1;
+      player.setPower(player.power + dir * POWER_STEP * 0.22);
+      this.markPredictionDirty();
+      this.syncHud();
+    });
+
     this.installAudioUnlock();
 
     this.startMatch({ showTurnOverlay: false });
@@ -98,8 +196,47 @@ export class GameScene extends Phaser.Scene {
 
     this.scale.on('resize', () => {
       this.renderWindRibbon();
+      this.drawArcadeGrade();
       this.syncHud();
     });
+  }
+
+  isTouchPointer(pointer) {
+    return Boolean(
+      pointer?.wasTouch ||
+      pointer?.pointerType === 'touch' ||
+      pointer?.event?.pointerType === 'touch' ||
+      pointer?.event?.type?.startsWith('touch')
+    );
+  }
+
+  ensureMobileFullscreen() {
+    if (this.mobileFullscreenRequested) return;
+    if (!this.sys.game.device.input.touch) return;
+    this.mobileFullscreenRequested = true;
+
+    if (!this.scale.isFullscreen) {
+      try {
+        this.scale.startFullscreen();
+      } catch {
+        // ignore fullscreen rejections (e.g. browser policy)
+      }
+    }
+
+    try {
+      if (screen.orientation?.lock) {
+        const lockResult = screen.orientation.lock('landscape');
+        if (lockResult?.catch) {
+          lockResult.catch(() => {});
+        }
+      }
+    } catch {
+      // ignore orientation lock errors on unsupported browsers
+    }
+  }
+
+  triggerHitStop(duration = 0.06) {
+    this.hitStopTimer = Math.max(this.hitStopTimer, duration);
   }
 
   installAudioUnlock() {
@@ -291,6 +428,10 @@ export class GameScene extends Phaser.Scene {
     this.windsockStripe.scaleY = droop * 0.96;
     this.windsockStripe.x = this.windsockPole.x + direction * (16 + normalized * 8);
     this.windsockStripe.y = this.windsock.y;
+
+    if (this.gradeOverlayAdd) {
+      this.gradeOverlayAdd.alpha = 0.94 + Math.sin(this.ambientTime * 0.35) * 0.06;
+    }
   }
 
   updateTankAnimations(dt) {
@@ -435,6 +576,36 @@ export class GameScene extends Phaser.Scene {
     this.windsock.setOrigin(0.08, 0.5);
     this.windsockStripe = this.add.rectangle(0, 0, 10, 10, 0x7fe7dc, 0.95).setDepth(28);
     this.windsockStripe.setOrigin(0.08, 0.5);
+
+    this.gradeOverlay = this.add.graphics().setDepth(80);
+    this.gradeOverlayAdd = this.add.graphics().setDepth(81).setBlendMode(Phaser.BlendModes.ADD);
+    this.drawArcadeGrade();
+  }
+
+  drawArcadeGrade() {
+    if (!this.gradeOverlay || !this.gradeOverlayAdd) {
+      return;
+    }
+
+    this.gradeOverlay.clear();
+    this.gradeOverlayAdd.clear();
+
+    // Cinematic tint + vignette for stronger arcade readability.
+    this.gradeOverlay.fillStyle(0x071018, 0.14);
+    this.gradeOverlay.fillRect(0, 0, GAME_WIDTH, GAME_HEIGHT);
+    this.gradeOverlay.fillStyle(0x000000, 0.16);
+    this.gradeOverlay.fillRect(0, 0, GAME_WIDTH, 42);
+    this.gradeOverlay.fillRect(0, GAME_HEIGHT - 56, GAME_WIDTH, 56);
+    this.gradeOverlay.fillStyle(0x000000, 0.1);
+    this.gradeOverlay.fillRect(0, 0, 44, GAME_HEIGHT);
+    this.gradeOverlay.fillRect(GAME_WIDTH - 44, 0, 44, GAME_HEIGHT);
+
+    this.gradeOverlayAdd.fillStyle(0xf2b84b, 0.08);
+    this.gradeOverlayAdd.fillCircle(GAME_WIDTH * 0.22, GAME_HEIGHT * 0.18, 230);
+    this.gradeOverlayAdd.fillStyle(0x7fe7dc, 0.065);
+    this.gradeOverlayAdd.fillCircle(GAME_WIDTH * 0.82, GAME_HEIGHT * 0.72, 260);
+    this.gradeOverlayAdd.fillStyle(0xffffff, 0.03);
+    this.gradeOverlayAdd.fillEllipse(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.52, 760, 290);
   }
 
   startMatch({ showTurnOverlay = true } = {}) {
@@ -570,7 +741,7 @@ export class GameScene extends Phaser.Scene {
   showStartOverlay() {
     this.showOverlay({
       type: 'start',
-      title: 'ARTILLERY',
+      title: 'CRATER COMMAND',
       body: [
         'Wind bends every shot.',
         'Crater the hill. Finish the tank.'
@@ -580,12 +751,12 @@ export class GameScene extends Phaser.Scene {
         name,
         wins: this.highscores[name] ?? 0
       })),
-      kicker: 'DESTRUCTIBLE TANK DUEL',
+      kicker: 'ARCADE TANK DUEL',
       tagline: 'Read the wind. Break the hill. Every map is different.',
       modeLabel: this.getModeLabel(),
       modeKey: this.currentMode,
-      hint: 'H how to play  |  M switch mode',
-      prompt: 'Press Space or Enter to start'
+      hint: 'Click/Tap start  |  H/Help  |  M or Switch Mode link',
+      prompt: 'Click/Tap, Space or Enter to start'
     });
   }
 
@@ -599,15 +770,15 @@ export class GameScene extends Phaser.Scene {
       body: [
         this.isCpuControlledPlayer()
           ? 'CPU is checking wind, terrain and shot power.'
-          : 'Pass the keyboard to the next player.',
+          : 'Pass the device to the next player.',
         '',
-        'Phase 1: Move left or right.',
-        'Phase 2: Aim, set power, choose a weapon, then fire.'
+        'Phase 1: Move with keys or click/tap ground.',
+        'Phase 2: Aim, set power, choose weapon, then fire.'
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
       prompt: this.isCpuControlledPlayer()
         ? 'CPU thinking...'
-        : 'Press Space or Enter when ready  |  H for Help'
+        : 'Click/Tap, Space or Enter when ready  |  H or Help button'
     });
     this.syncHud();
 
@@ -638,7 +809,7 @@ export class GameScene extends Phaser.Scene {
         this.getRoundStatsText()
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
-      prompt: 'Press Space, Enter or R for a new round  |  M switch mode  |  H for Help'
+      prompt: 'Click/Tap, Space, Enter or R for a new round  |  M/switch mode link  |  H/Help'
     });
   }
 
@@ -655,9 +826,9 @@ export class GameScene extends Phaser.Scene {
       'Bring the enemy tank down to 0 HP before yours is destroyed.',
       '',
       'Round Flow',
-      '1. Move Phase: use Left/Right to spend a short movement budget.',
-      '2. Press Space to end movement early, or wait until movement runs out.',
-      '3. Aim Phase: adjust angle, power and weapon, then fire.',
+      '1. Move Phase: use Left/Right or click/tap ground to move.',
+      '2. End Move early with Space or click/tap your own tank.',
+      '3. Aim Phase: use mouse/touch drag or keys, adjust power, then fire.',
       '4. The projectile resolves, the terrain deforms and the turn changes.',
       '',
       'Damage',
@@ -669,15 +840,15 @@ export class GameScene extends Phaser.Scene {
   buildHelpSidebar() {
     return [
       'Controls',
-      'Left/Right: move in Move Phase',
-      'Up/Down: aim in Aim Phase',
-      'A/D or J/L: lower/raise power',
-      'Q/E: cycle weapons',
-      'Space: confirm / fire',
-      'Enter: confirm overlays',
-      'H: open help',
-      'Esc: close help',
-      'R: restart round',
+      'Move: Left/Right or click/tap ground',
+      'Skip Move: Space or click/tap own tank',
+      'Aim: mouse/touch drag or Up/Down',
+      'Power: mouse wheel, drag vertical, or A/D / J/L',
+      'Fire: click, touch release, or Space',
+      'Weapon: Q/E or mobile Weapon button',
+      'Overlay confirm: click/tap, Space, or Enter',
+      'Help: H, Esc, or mobile Help button',
+      'Restart: R or click/tap on game-over',
       '',
       'Weapons',
       'Basic Shell: balanced standard shot',
@@ -692,7 +863,7 @@ export class GameScene extends Phaser.Scene {
       '',
       'Modes',
       `${this.getModeLabel()} active`,
-      'Press M on the start or round-over screen to switch mode.'
+      'Switch mode via M or the Switch Mode link on start/round-over.'
     ].join('\n');
   }
 
@@ -703,7 +874,7 @@ export class GameScene extends Phaser.Scene {
       title: 'Help',
       body: this.buildHelpBody(),
       scoreboard: this.buildHelpSidebar(),
-      prompt: 'Press Esc, H, Space or Enter to close help'
+      prompt: 'Click/Tap, Esc, H, Space or Enter to close help'
     });
   }
 
@@ -897,6 +1068,10 @@ export class GameScene extends Phaser.Scene {
 
   update(_time, delta) {
     const dt = Math.min(delta / 1000, 0.032);
+    if (this.hitStopTimer > 0) {
+      this.hitStopTimer = Math.max(0, this.hitStopTimer - dt);
+      return;
+    }
     this.activeTankDriving = false;
     this.ambientAccumulator = Math.min(this.ambientAccumulator + dt, this.ambientStep * 3);
     while (this.ambientAccumulator >= this.ambientStep) {
@@ -1026,10 +1201,28 @@ export class GameScene extends Phaser.Scene {
     let hudDirty = false;
 
     if (this.turnPhase === 'move') {
-      const moveAxis =
+      const keyMoveAxis =
         (this.inputKeys.right.isDown ? 1 : 0) - (this.inputKeys.left.isDown ? 1 : 0);
+      if (keyMoveAxis !== 0) {
+        this.mouseMoveTarget = null;
+      }
+
+      let moveAxis = keyMoveAxis;
+      if (moveAxis === 0 && this.mouseMoveTarget !== null) {
+        const deltaToTarget = this.mouseMoveTarget - player.x;
+        if (Math.abs(deltaToTarget) <= 1.5) {
+          this.mouseMoveTarget = null;
+        } else {
+          moveAxis = Math.sign(deltaToTarget);
+        }
+      }
+
       if (moveAxis !== 0 && this.remainingMove > 0) {
-        const amount = Math.min(this.remainingMove, MOVE_SPEED * dt);
+        const targetLimit =
+          this.mouseMoveTarget !== null
+            ? Math.abs(this.mouseMoveTarget - player.x)
+            : Number.POSITIVE_INFINITY;
+        const amount = Math.min(this.remainingMove, MOVE_SPEED * dt, targetLimit);
         const nextX = Phaser.Math.Clamp(player.x + moveAxis * amount, 48, GAME_WIDTH - 48);
         const traveled = Math.abs(nextX - player.x);
         if (traveled > 0) {
@@ -1039,16 +1232,21 @@ export class GameScene extends Phaser.Scene {
           this.stabilityActive = true;
           this.activeTankDriving = true;
           this.trySpawnMoveDust(player, moveAxis);
+          if (this.mouseMoveTarget !== null && Math.abs(this.mouseMoveTarget - player.x) <= 1.5) {
+            this.mouseMoveTarget = null;
+          }
           hudDirty = true;
         }
       }
 
       if (this.remainingMove <= 0) {
+        this.mouseMoveTarget = null;
         this.enterAimPhase();
         return;
       }
 
       if (Phaser.Input.Keyboard.JustDown(this.inputKeys.space)) {
+        this.mouseMoveTarget = null;
         this.enterAimPhase();
         return;
       }
@@ -1138,11 +1336,26 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  mouseAim(pointer) {
+    const player = this.getActivePlayer();
+    if (!player) return;
+    const dx = pointer.worldX - player.x;
+    const dy = pointer.worldY - player.y;
+    // Only aim in the direction the tank is facing
+    if (player.facing === 1 ? dx > 0 : dx < 0) {
+      const angleDeg = Phaser.Math.RadToDeg(Math.atan2(-dy, Math.abs(dx)));
+      player.setPitch(Phaser.Math.Clamp(angleDeg, MIN_PITCH, MAX_PITCH));
+      this.markPredictionDirty();
+    }
+  }
+
   enterAimPhase() {
     if (this.turnPhase === 'aim' || this.gameOver || this.resolving) {
       return;
     }
 
+    this.touchAimState = null;
+    this.mouseMoveTarget = null;
     this.turnPhase = 'aim';
     this.markPredictionDirty();
     this.showTurnBanner(`${this.getActivePlayer().name} aim phase`);
@@ -1153,6 +1366,7 @@ export class GameScene extends Phaser.Scene {
     if (this.resolving || this.gameOver) {
       return;
     }
+    this.touchAimState = null;
 
     const player = this.getActivePlayer();
     const weapon = getWeapon(player.weaponIndex);
@@ -1198,7 +1412,8 @@ export class GameScene extends Phaser.Scene {
 
   spawnProjectile(config) {
     const sprite = this.add.circle(config.x, config.y, config.radius, config.color, 1).setDepth(50);
-    sprite.setStrokeStyle(2, 0xffffff, 0.35);
+    sprite.setStrokeStyle(2, 0xffffff, 0.55);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
     const trail = this.add.graphics().setDepth(49);
 
     this.projectiles.push({
@@ -1354,6 +1569,12 @@ export class GameScene extends Phaser.Scene {
         trail.fillCircle(to.x, to.y, 3 + alpha * 2);
       }
     }
+
+    const tip = trailPoints[trailPoints.length - 1];
+    if (tip) {
+      trail.fillStyle(projectile.color, 0.18);
+      trail.fillCircle(tip.x, tip.y, projectile.radius + 2.4);
+    }
   }
 
   splitProjectile(projectile, index) {
@@ -1415,26 +1636,33 @@ export class GameScene extends Phaser.Scene {
     return null;
   }
 
-  getTerrainCraterPoint(x, y, radius) {
-    const surfaceY = this.terrain.getSurfaceY(x);
-
-    // Bias the crater center slightly into the ground so terrain removal remains visible
-    // even when the collision happened on a tank body just above the surface.
-    const minCraterY = surfaceY + radius * 0.22;
-    const maxCraterY = surfaceY + radius * 0.48;
+  getTerrainCraterPoint(x, y, radius, surfaceY = this.terrain.getSurfaceY(x)) {
+    // Keep craters anchored to the actual impact while nudging them slightly into terrain.
+    // This avoids "no visible crater" cases on grazing surface hits and cliff impacts.
+    const minCraterY = surfaceY + radius * 0.08;
+    const maxCraterY = surfaceY + radius * 0.72;
+    const impactBiasedY = y + radius * 0.12;
 
     return {
       x,
-      y: Phaser.Math.Clamp(Math.max(y, minCraterY), minCraterY, maxCraterY)
+      y: Phaser.Math.Clamp(impactBiasedY, minCraterY, maxCraterY)
     };
   }
 
   explode(x, y, weapon, owner = null) {
-    const crater = this.getTerrainCraterPoint(x, y, weapon.blastRadius);
+    const surfaceY = this.terrain.getSurfaceY(x);
+    const crater = this.getTerrainCraterPoint(x, y, weapon.blastRadius, surfaceY);
+    const skimRadius = Math.max(10, weapon.blastRadius * 0.56);
+    const skimY = Phaser.Math.Clamp(surfaceY + weapon.blastRadius * 0.05, 0, GAME_HEIGHT - 1);
+
     this.focusCameraOn(x, y, 220, 1.07);
     this.audioManager.playExplosion(weapon);
     this.cameras.main.shake(180, 0.004 + weapon.blastRadius / 40000);
-    this.terrain.deformCircle(crater.x, crater.y, weapon.blastRadius);
+    this.playArcadeImpactFx(x, y, weapon);
+    this.terrain.deformCircle(crater.x, crater.y, weapon.blastRadius, { profile: 'crater' });
+    // A shallow secondary carve guarantees visible surface damage on direct ground hits.
+    this.terrain.deformCircle(crater.x, skimY, skimRadius, { drawRim: false, profile: 'scoop' });
+    this.terrain.stampImpactDecal(crater.x, crater.y, weapon.blastRadius, weapon);
     this.stabilityActive = true;
     this.markPredictionDirty();
     this.spawnCraterDebris(crater.x, crater.y, weapon.blastRadius);
@@ -1460,6 +1688,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.particles.explode(Math.floor(weapon.blastRadius * 0.9), x, y);
+    let bestHitDistance = Number.POSITIVE_INFINITY;
 
     for (const tank of this.players) {
       tank.syncToTerrain(this.terrain);
@@ -1470,6 +1699,9 @@ export class GameScene extends Phaser.Scene {
         tank.applyDamage(damage);
         this.spawnDamageText(tank.x, tank.y - 26, damage, weapon.damageText);
         this.audioManager.playHit(damage);
+        if (damage > 0) {
+          bestHitDistance = Math.min(bestHitDistance, distance);
+        }
         if (owner && damage > 0) {
           const ownerStats = this.roundStats[owner.name];
           ownerStats.hits += 1;
@@ -1480,6 +1712,13 @@ export class GameScene extends Phaser.Scene {
           }
         }
       }
+    }
+    if (bestHitDistance < 16) {
+      this.triggerHitStop(0.072);
+      this.spawnImpactCallout(x, y - 18, 'DIRECT HIT!', '#ffd97f');
+    } else if (bestHitDistance < 28) {
+      this.triggerHitStop(0.038);
+      this.spawnImpactCallout(x, y - 18, 'SOLID HIT', '#ffe8a8');
     }
 
     // Record miss data for CPU error correction on the next turn
@@ -1496,6 +1735,89 @@ export class GameScene extends Phaser.Scene {
     if (!this.gameOver) {
       this.time.delayedCall(260, () => this.resetCameraFocus());
     }
+  }
+
+  playArcadeImpactFx(x, y, weapon) {
+    const flashAlpha = Phaser.Math.Clamp(0.1 + weapon.blastRadius / 180, 0.12, 0.28);
+    this.tweens.killTweensOf(this.impactFlash);
+    this.impactFlash.setAlpha(flashAlpha);
+    this.tweens.add({
+      targets: this.impactFlash,
+      alpha: 0,
+      duration: 150,
+      ease: 'Quad.Out'
+    });
+
+    const outer = this.add.circle(x, y, weapon.blastRadius * 0.26, weapon.explosionRing, 0).setDepth(58);
+    outer.setStrokeStyle(4, weapon.explosionRing, 0.92);
+    outer.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: outer,
+      radius: weapon.blastRadius * 2.05,
+      alpha: 0,
+      duration: 260,
+      ease: 'Cubic.Out',
+      onComplete: () => outer.destroy()
+    });
+
+    const core = this.add.circle(x, y, 10, weapon.explosionCore, 0.95).setDepth(59);
+    core.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: core,
+      radius: weapon.blastRadius * 0.9,
+      alpha: 0,
+      duration: 170,
+      ease: 'Quad.Out',
+      onComplete: () => core.destroy()
+    });
+
+    for (let i = 0; i < 8; i += 1) {
+      const angle = (Math.PI * 2 * i) / 8 + Phaser.Math.FloatBetween(-0.24, 0.24);
+      const shard = this.add.rectangle(
+        x + Math.cos(angle) * 8,
+        y + Math.sin(angle) * 8,
+        Phaser.Math.Between(10, 18),
+        Phaser.Math.Between(2, 4),
+        Phaser.Math.RND.pick([weapon.explosionCore, weapon.explosionRing, 0xfff1bf]),
+        0.86
+      );
+      shard.rotation = angle;
+      shard.setDepth(58);
+      shard.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: shard,
+        x: x + Math.cos(angle) * Phaser.Math.Between(44, 86),
+        y: y + Math.sin(angle) * Phaser.Math.Between(44, 86),
+        alpha: 0,
+        scaleX: 0.4,
+        duration: Phaser.Math.Between(170, 240),
+        ease: 'Cubic.Out',
+        onComplete: () => shard.destroy()
+      });
+    }
+  }
+
+  spawnImpactCallout(x, y, label, color) {
+    const callout = this.add
+      .text(x, y, label, {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '28px',
+        fontStyle: 'bold',
+        color
+      })
+      .setOrigin(0.5)
+      .setDepth(74)
+      .setStroke('#1a1208', 5);
+    callout.setShadow(0, 3, '#000000', 8, true, true);
+    this.tweens.add({
+      targets: callout,
+      y: y - 24,
+      alpha: 0,
+      scale: 1.15,
+      duration: 520,
+      ease: 'Back.Out',
+      onComplete: () => callout.destroy()
+    });
   }
 
   spawnCraterDebris(x, y, radius) {
@@ -1530,23 +1852,26 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
+    const bigHit = damage >= 26;
     const text = this.add
       .text(x, y, `-${damage}`, {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
-        fontSize: '22px',
+        fontSize: bigHit ? '28px' : '22px',
         fontStyle: 'bold',
         color
       })
       .setOrigin(0.5)
-      .setDepth(70);
+      .setDepth(70)
+      .setStroke('#1a1208', bigHit ? 5 : 3);
+    text.setShadow(0, 2, '#000000', 6, true, true);
 
     this.tweens.add({
       targets: text,
-      y: y - 26,
+      y: y - (bigHit ? 34 : 26),
       alpha: 0,
-      scale: 1.15,
-      duration: 520,
-      ease: 'Cubic.Out',
+      scale: bigHit ? 1.26 : 1.15,
+      duration: bigHit ? 620 : 520,
+      ease: bigHit ? 'Back.Out' : 'Cubic.Out',
       onComplete: () => text.destroy()
     });
   }
@@ -1669,44 +1994,43 @@ export class GameScene extends Phaser.Scene {
 
   renderWindRibbon() {
     this.windRibbon.clear();
-    const panelX = GAME_WIDTH * 0.5 - 184;
-    const panelY = 24;
-    const panelWidth = 368;
-    const panelHeight = 48;
+    // Keep the ribbon in its own lower HUD lane so center text stays unobstructed.
+    const panelX = GAME_WIDTH * 0.5 - 170;
+    const panelY = 112;
+    const panelWidth = 340;
+    const panelHeight = 20;
     const centerX = GAME_WIDTH * 0.5;
     const y = panelY + panelHeight * 0.5;
     const magnitude = Math.abs(this.wind);
     const normalized = Phaser.Math.Clamp(magnitude / WIND_LIMIT, 0, 1);
-    const size = Phaser.Math.Clamp(normalized * 124, 0, 124);
+    const size = Phaser.Math.Clamp(normalized * 112, 0, 112);
     const direction = Math.abs(this.wind) < 4 ? 0 : Math.sign(this.wind);
     const color = direction >= 0 ? 0xf2b84b : 0x7fe7dc;
-    const chevrons = Math.max(1, Math.ceil(normalized * 5));
-    const barbs = Math.ceil(normalized * 4);
 
-    this.windRibbon.fillStyle(0x08121a, 0.72);
-    this.windRibbon.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
-    this.windRibbon.lineStyle(2, 0xffffff, 0.1);
-    this.windRibbon.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 16);
+    this.windRibbon.fillStyle(0x08121a, 0.52);
+    this.windRibbon.fillRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
+    this.windRibbon.lineStyle(1, 0xffffff, 0.08);
+    this.windRibbon.strokeRoundedRect(panelX, panelY, panelWidth, panelHeight, 10);
 
     this.windRibbon.lineStyle(2, 0xffffff, 0.18);
     this.windRibbon.beginPath();
-    this.windRibbon.moveTo(centerX, panelY + 9);
-    this.windRibbon.lineTo(centerX, panelY + panelHeight - 9);
+    this.windRibbon.moveTo(centerX, panelY + 4);
+    this.windRibbon.lineTo(centerX, panelY + panelHeight - 4);
     this.windRibbon.strokePath();
 
-    this.windRibbon.lineStyle(2, 0xffffff, 0.08);
+    this.windRibbon.lineStyle(1, 0xffffff, 0.08);
     this.windRibbon.beginPath();
-    this.windRibbon.moveTo(panelX + 22, y);
-    this.windRibbon.lineTo(panelX + panelWidth - 22, y);
+    this.windRibbon.moveTo(panelX + 14, y);
+    this.windRibbon.lineTo(panelX + panelWidth - 14, y);
     this.windRibbon.strokePath();
 
     if (direction === 0) {
       this.windRibbon.fillStyle(0xf4f1df, 0.92);
-      this.windRibbon.fillCircle(centerX, y, 4);
+      this.windRibbon.fillCircle(centerX, y, 3);
       return;
     }
 
-    this.windRibbon.lineStyle(5, color, 0.98);
+    this.windRibbon.lineStyle(4, color, 0.95);
     this.windRibbon.beginPath();
     this.windRibbon.moveTo(centerX, y);
     this.windRibbon.lineTo(centerX + direction * size, y);
@@ -1715,38 +2039,10 @@ export class GameScene extends Phaser.Scene {
     this.windRibbon.fillStyle(color, 0.98);
     this.windRibbon.beginPath();
     this.windRibbon.moveTo(centerX + direction * size, y);
-    this.windRibbon.lineTo(centerX + direction * (size - 18), y - 9);
-    this.windRibbon.lineTo(centerX + direction * (size - 18), y + 9);
+    this.windRibbon.lineTo(centerX + direction * (size - 12), y - 6);
+    this.windRibbon.lineTo(centerX + direction * (size - 12), y + 6);
     this.windRibbon.closePath();
     this.windRibbon.fillPath();
-
-    for (let i = 0; i < chevrons; i += 1) {
-      const offset = 26 + i * 20;
-      const baseX = centerX + direction * offset;
-      this.windRibbon.lineStyle(3, color, 0.65 - i * 0.08);
-      this.windRibbon.beginPath();
-      this.windRibbon.moveTo(baseX, y - 8);
-      this.windRibbon.lineTo(baseX + direction * 9, y);
-      this.windRibbon.lineTo(baseX, y + 8);
-      this.windRibbon.strokePath();
-    }
-
-    const barbBaseX = panelX + (direction > 0 ? panelWidth - 42 : 42);
-    const barbTopY = panelY + 12;
-    const barbBottomY = panelY + panelHeight - 12;
-    this.windRibbon.lineStyle(3, color, 0.95);
-    this.windRibbon.beginPath();
-    this.windRibbon.moveTo(barbBaseX, barbBottomY);
-    this.windRibbon.lineTo(barbBaseX, barbTopY);
-    this.windRibbon.strokePath();
-
-    for (let i = 0; i < barbs; i += 1) {
-      const barbY = barbTopY + 4 + i * 8;
-      this.windRibbon.beginPath();
-      this.windRibbon.moveTo(barbBaseX, barbY);
-      this.windRibbon.lineTo(barbBaseX - direction * 14, barbY + 6);
-      this.windRibbon.strokePath();
-    }
   }
 
   showTurnBanner(text) {

@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'artillery-highscores-v1';
+const STORAGE_KEY = 'crater-command-highscores-v1';
+const LEGACY_STORAGE_KEY = 'artillery-highscores-v1';
 
 export class ScoreStore {
   constructor(playerNames) {
@@ -12,7 +13,9 @@ export class ScoreStore {
     }
 
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw =
+        window.localStorage.getItem(STORAGE_KEY) ??
+        window.localStorage.getItem(LEGACY_STORAGE_KEY);
       if (!raw) {
         return fallback;
       }

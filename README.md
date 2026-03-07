@@ -1,6 +1,6 @@
-# Artillery
+# Crater Command
 
-Ein lokales 2D-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, vier Waffen mit Munitionslimit, Zugtimer, Wetterbedingungen, vier Terrain-Presets, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
+Ein lokales 2D-Arcade-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, vier Waffen mit Munitionslimit, Zugtimer, Wetterbedingungen, vier Terrain-Presets, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
 
 ## Konzept
 
@@ -65,16 +65,30 @@ Zusatz-Flow:
 
 ## Controls
 
+Desktop (Keyboard + Maus):
+
 - `Left / Right`: Tank bewegen
-- `Up / Down`: Rohr anheben / senken
-- `A / D` oder `J / L`: Schusskraft reduzieren / erhoehen
+- `Click` auf Boden: in Move-Phase Ziel setzen
+- `Click` auf eigenen Tank: Move-Phase beenden
+- `Up / Down` oder Mausbewegung: Rohr ausrichten
+- `A / D` oder `J / L` oder Mausrad: Schusskraft aendern
 - `Q / E`: Waffe wechseln (ueberspringt leere Waffen automatisch)
-- `Space`: in `Move` auf `Aim` wechseln, in `Aim` feuern
-- `Enter`: Startscreen, Turn-Handoff und Game-Over bestaetigen
+- `Click` oder `Space`: feuern
+- `Enter`: Overlays bestaetigen
 - `H`: Help-Screen oeffnen
 - `Esc`: Help-Screen schliessen
 - `M`: Modus zwischen `Solo vs CPU` und `Local Duel` wechseln
 - `R`: neue Runde auf neuer Karte starten
+
+Mobile (Touch, Landscape):
+
+- `Tap` auf Boden: in Move-Phase Ziel setzen
+- `Tap` auf eigenen Tank: Move-Phase beenden
+- `Drag` in Aim-Phase: Winkel + Power gleichzeitig
+- `Touch loslassen`: feuern
+- `Weapon`-Button unten rechts: Waffe wechseln
+- `Help`-Button unten rechts: Hilfe oeffnen/schliessen
+- Beim ersten Touch versucht das Spiel `Fullscreen` + `Landscape-Lock` (Browser-abhaengig).
 
 ## Waffen
 
@@ -177,7 +191,8 @@ npm run preview
 ## Features
 
 - prozedurales, deformierbares Terrain mit vier Preset-Typen
-- sichtbare Krater-Deformation mit Bodenschichten (Erde, Lehm, Stein)
+- sichtbare, organische Krater-Deformation mit gezackten Rändern, Vertiefungen und Bodenschichten
+- waffenspezifische Impact-Decals (Scorch/Staub) auf dem Terrain
 - Tanks passen sich dem Terrain an und koennen an steilen Raendern rutschen
 - vier unterschiedliche Waffen, drei davon mit begrenzter Munition
 - Bouncer-Waffe mit physikalisch korrekter Terrain-Reflektion
@@ -191,8 +206,10 @@ npm run preview
 - CPU-Gegner mit ballistischer Zielsuche, Fehlerkorrektur und situativer Waffenwahl
 - Rundenstatistiken und persistenter Highscore via `localStorage`
 - animierte HP-Bars, Schadenstexte und Trefferfeedback
+- arcade-lastige Trefferinszenierung: Screen-Flash, Shockwave, Impact-Shards, Hit-Callouts (`DIRECT HIT`)
+- kurzer Hit-Stop bei starken Treffern fuer mehr Impact
 - Kamera-Fokus bei Schuss und Einschlag
-- responsive HUD-Anpassungen fuer kleinere Viewports
+- responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten
 - generiertes Audio ohne externe Assets
 
 ## Architektur
@@ -203,11 +220,11 @@ npm run preview
 - `src/game/scenes/BootScene.js`
   - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
 - `src/game/scenes/GameScene.js`
-  - Kern des Spiels: Match-Flow, Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
+  - Kern des Spiels: Match-Flow, Keyboard/Maus/Touch-Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
 - `src/game/scenes/UIScene.js`
-  - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, klickbare Startscreen-Elemente und responsive Anpassungen
+  - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
 - `src/game/systems/Terrain.js`
-  - Terrain-Generierung mit vier Presets, Pixelkollision, Krater-Deformation, Bodenschicht-Gradient, Oberflaechenberechnung
+  - Terrain-Generierung mit vier Presets, Pixelkollision, unregelmaessige Krater-Deformation, Impact-Decals, Bodenschicht-Gradient, Oberflaechenberechnung
 - `src/game/systems/WeatherSystem.js`
   - Wetterbedingungen: Regen-Partikel, Nebel-Overlay, Sturm-Windwuerfelung, Schwerkraft-Modifikator
 - `src/game/entities/Tank.js`
@@ -246,6 +263,6 @@ npm run preview
 
 - Die CPU nutzt eine brute-force Schusssuche mit Fehlerkorrektur; sie plant keine Mehrzug-Strategien.
 - Der Bouncer wird von der CPU nicht eingesetzt, da die Bounce-Simulation im Planner nicht implementiert ist.
-- Das Spiel ist desktop-first. Kleine Viewports werden abgefedert, es gibt aber keine vollwertige Touch-Steuerung.
+- Das Spiel laeuft auf Touch-Geraeten am besten in Landscape. Fullscreen/Orientation-Lock ist browserabhaengig und kann nicht auf jedem Geraet erzwungen werden.
 - Audio ist bewusst synthetisch und leichtgewichtig statt samplebasiert.
 - Der Zugtimer gilt nicht fuer CPU-Zuege und wird bei offenen Overlays pausiert.

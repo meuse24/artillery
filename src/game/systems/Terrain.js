@@ -188,40 +188,167 @@ export class Terrain {
     }
   }
 
-  deformCircle(x, y, radius) {
-    // Explosion damage removes solid pixels from the terrain canvas.
+  colorToRgba(color, alpha) {
+    const r = (color >> 16) & 255;
+    const g = (color >> 8) & 255;
+    const b = color & 255;
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+  }
+
+  drawJaggedCraterPath(x, y, radius, options = {}) {
+    const {
+      segments = 30,
+      jaggedness = 0.2,
+      stretchX = 1,
+      stretchY = 1,
+      phaseA = Phaser.Math.FloatBetween(0, Math.PI * 2),
+      phaseB = Phaser.Math.FloatBetween(0, Math.PI * 2)
+    } = options;
+    const total = Math.max(14, segments);
+
+    this.ctx.beginPath();
+    for (let i = 0; i <= total; i += 1) {
+      const t = i / total;
+      const angle = t * Math.PI * 2;
+      const waveA = Math.sin(angle * 3 + phaseA) * jaggedness * 0.42;
+      const waveB = Math.sin(angle * 5 + phaseB) * jaggedness * 0.26;
+      const jitter = Phaser.Math.FloatBetween(-jaggedness, jaggedness) * 0.2;
+      const scale = 1 + waveA + waveB + jitter;
+      const px = x + Math.cos(angle) * radius * scale * stretchX;
+      const py = y + Math.sin(angle) * radius * scale * stretchY;
+      if (i === 0) {
+        this.ctx.moveTo(px, py);
+      } else {
+        this.ctx.lineTo(px, py);
+      }
+    }
+    this.ctx.closePath();
+  }
+
+  deformCircle(x, y, radius, options = {}) {
+    const {
+      drawRim = true,
+      profile = 'crater'
+    } = options;
+
+    const craterStretchX = profile === 'scoop' ? 1.22 : 1.0;
+    const craterStretchY = profile === 'scoop' ? 0.68 : 0.9;
+
+    // Explosion damage removes solid pixels from the terrain canvas (irregular crater body).
     this.ctx.save();
     this.ctx.globalCompositeOperation = 'destination-out';
-    this.ctx.beginPath();
-    this.ctx.arc(x, y, radius, 0, Math.PI * 2);
+    this.drawJaggedCraterPath(x, y, radius, {
+      segments: Math.round(radius * 0.9),
+      jaggedness: profile === 'scoop' ? 0.11 : 0.2,
+      stretchX: craterStretchX,
+      stretchY: craterStretchY
+    });
     this.ctx.fill();
+    if (profile !== 'scoop') {
+      // Secondary inner cavity creates a steeper bowl instead of a flat circular hole.
+      this.drawJaggedCraterPath(
+        x + Phaser.Math.FloatBetween(-radius * 0.08, radius * 0.08),
+        y + radius * 0.16,
+        radius * 0.56,
+        {
+          segments: Math.round(radius * 0.75),
+          jaggedness: 0.23,
+          stretchX: Phaser.Math.FloatBetween(0.88, 1.14),
+          stretchY: Phaser.Math.FloatBetween(0.64, 0.82)
+        }
+      );
+      this.ctx.fill();
+      // Small side collapses break symmetry and feel closer to arcade blast craters.
+      for (let i = 0; i < 2; i += 1) {
+        const sideX = x + Phaser.Math.FloatBetween(-radius * 0.35, radius * 0.35);
+        const sideY = y + Phaser.Math.FloatBetween(radius * 0.02, radius * 0.28);
+        this.drawJaggedCraterPath(sideX, sideY, radius * Phaser.Math.FloatBetween(0.2, 0.3), {
+          segments: 16,
+          jaggedness: 0.24,
+          stretchX: Phaser.Math.FloatBetween(0.9, 1.2),
+          stretchY: Phaser.Math.FloatBetween(0.65, 0.95)
+        });
+        this.ctx.fill();
+      }
+    }
     this.ctx.restore();
 
-    // Draw a dirt-layer rim at the crater edge to hint at underground strata.
-    // The inner glow is painted over existing terrain so it stays visible.
-    this.ctx.save();
-    this.ctx.globalCompositeOperation = 'source-atop';
-    const rimGrad = this.ctx.createRadialGradient(x, y, radius * 0.55, x, y, radius + 3);
-    rimGrad.addColorStop(0,   'rgba(90, 65, 40, 0.0)');
-    rimGrad.addColorStop(0.6, 'rgba(90, 65, 40, 0.18)');
-    rimGrad.addColorStop(1,   'rgba(55, 40, 28, 0.38)');
-    this.ctx.fillStyle = rimGrad;
-    this.ctx.beginPath();
-    this.ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
-    this.ctx.fill();
-    this.ctx.restore();
+    if (drawRim) {
+      // Dirt-layer shading inside crater.
+      this.ctx.save();
+      this.ctx.globalCompositeOperation = 'source-atop';
+      const rimGrad = this.ctx.createRadialGradient(x, y + radius * 0.22, radius * 0.2, x, y, radius * 1.16);
+      rimGrad.addColorStop(0, 'rgba(68, 49, 33, 0.44)');
+      rimGrad.addColorStop(0.52, 'rgba(84, 59, 39, 0.24)');
+      rimGrad.addColorStop(1, 'rgba(53, 38, 27, 0.0)');
+      this.ctx.fillStyle = rimGrad;
+      this.drawJaggedCraterPath(x, y, radius * 1.16, {
+        segments: Math.round(radius * 0.95),
+        jaggedness: 0.16,
+        stretchY: 0.94
+      });
+      this.ctx.fill();
+      this.ctx.restore();
 
-    // Outer ring glow (explosion scorch mark)
-    this.ctx.save();
-    this.ctx.strokeStyle = 'rgba(249, 192, 110, 0.14)';
-    this.ctx.lineWidth = 2;
-    this.ctx.beginPath();
-    this.ctx.arc(x, y, radius + 3, 0, Math.PI * 2);
-    this.ctx.stroke();
-    this.ctx.restore();
+      // Outer crater lip / scorch.
+      this.ctx.save();
+      this.ctx.strokeStyle = 'rgba(252, 199, 112, 0.2)';
+      this.ctx.lineWidth = Math.max(1.4, radius * 0.04);
+      this.drawJaggedCraterPath(x, y, radius * 1.05, {
+        segments: Math.round(radius),
+        jaggedness: 0.14,
+        stretchY: 0.92
+      });
+      this.ctx.stroke();
+      this.ctx.restore();
+    }
 
     this.rebuildPixels();
-    this.rebuildSurfaceRange(x - radius - 4, x + radius + 4);
+    this.rebuildSurfaceRange(x - radius * 1.45 - 6, x + radius * 1.45 + 6);
+    this.canvasTexture.refresh();
+  }
+
+  stampImpactDecal(x, y, radius, weapon) {
+    const ring = this.colorToRgba(weapon.explosionRing, 0.22);
+    const core = this.colorToRgba(weapon.explosionCore, 0.16);
+    const soot = 'rgba(26, 18, 12, 0.34)';
+
+    this.ctx.save();
+    // Shade only existing terrain pixels.
+    this.ctx.globalCompositeOperation = 'source-atop';
+
+    const scorch = this.ctx.createRadialGradient(x, y + radius * 0.12, radius * 0.16, x, y, radius * 1.4);
+    scorch.addColorStop(0, core);
+    scorch.addColorStop(0.55, ring);
+    scorch.addColorStop(1, 'rgba(25, 18, 12, 0.0)');
+    this.ctx.fillStyle = scorch;
+    this.ctx.beginPath();
+    this.ctx.arc(x, y, radius * 1.42, 0, Math.PI * 2);
+    this.ctx.fill();
+
+    this.ctx.strokeStyle = soot;
+    this.ctx.lineWidth = Math.max(1.2, radius * 0.05);
+    for (let i = 0; i < 6; i += 1) {
+      const start = Phaser.Math.FloatBetween(0, Math.PI * 2);
+      const span = Phaser.Math.FloatBetween(0.3, 0.75);
+      const rr = radius * Phaser.Math.FloatBetween(0.8, 1.16);
+      this.ctx.beginPath();
+      this.ctx.arc(x + Phaser.Math.FloatBetween(-2, 2), y + Phaser.Math.FloatBetween(-2, 2), rr, start, start + span);
+      this.ctx.stroke();
+    }
+
+    for (let i = 0; i < Math.round(radius * 0.45); i += 1) {
+      const px = x + Phaser.Math.FloatBetween(-radius * 1.05, radius * 1.05);
+      const py = y + Phaser.Math.FloatBetween(-radius * 0.7, radius * 0.95);
+      this.ctx.fillStyle = Phaser.Math.RND.pick([
+        this.colorToRgba(weapon.explosionRing, 0.14),
+        'rgba(40, 27, 18, 0.2)',
+        'rgba(235, 196, 128, 0.08)'
+      ]);
+      this.ctx.fillRect(px, py, Phaser.Math.Between(1, 3), Phaser.Math.Between(1, 3));
+    }
+
+    this.ctx.restore();
     this.canvasTexture.refresh();
   }
 
