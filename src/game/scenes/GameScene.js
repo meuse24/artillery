@@ -22,9 +22,11 @@ import { AudioManager } from '../systems/AudioManager.js';
 import { ArcadeEventBus } from '../systems/ArcadeEventBus.js';
 import { ArcadeScoringSystem } from '../systems/ArcadeScoringSystem.js';
 import { MutatorSystem } from '../systems/MutatorSystem.js';
+import { OverlayStateSystem } from '../systems/OverlayStateSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
+import { InputController } from '../systems/InputController.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
@@ -69,6 +71,7 @@ export class GameScene extends Phaser.Scene {
     this.telemetrySystem = new TelemetrySystem({
       eventBus: this.arcadeEvents
     });
+    this.overlaySystem = new OverlayStateSystem(this, { objectiveText: OBJECTIVE_TEXT });
     this.installArcadeFeedback();
   }
 
@@ -150,111 +153,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   setupInputHandlers() {
-    this.inputKeys = this.input.keyboard.addKeys({
-      left: Phaser.Input.Keyboard.KeyCodes.LEFT,
-      right: Phaser.Input.Keyboard.KeyCodes.RIGHT,
-      up: Phaser.Input.Keyboard.KeyCodes.UP,
-      down: Phaser.Input.Keyboard.KeyCodes.DOWN,
-      a: Phaser.Input.Keyboard.KeyCodes.A,
-      d: Phaser.Input.Keyboard.KeyCodes.D,
-      j: Phaser.Input.Keyboard.KeyCodes.J,
-      l: Phaser.Input.Keyboard.KeyCodes.L,
-      q: Phaser.Input.Keyboard.KeyCodes.Q,
-      e: Phaser.Input.Keyboard.KeyCodes.E,
-      h: Phaser.Input.Keyboard.KeyCodes.H,
-      m: Phaser.Input.Keyboard.KeyCodes.M,
-      esc: Phaser.Input.Keyboard.KeyCodes.ESC,
-      enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
-      space: Phaser.Input.Keyboard.KeyCodes.SPACE,
-      r: Phaser.Input.Keyboard.KeyCodes.R,
-      v: Phaser.Input.Keyboard.KeyCodes.V
-    });
-
-    this.input.on('pointermove', (pointer) => {
-      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
-      if (this.turnPhase !== 'aim') return;
-
-      if (this.touchAimState && this.isTouchPointer(pointer) && pointer.id === this.touchAimState.pointerId) {
-        this.mouseAim(pointer);
-        const player = this.getActivePlayer();
-        const deltaY = this.touchAimState.startY - pointer.worldY;
-        player.setPower(this.touchAimState.basePower + deltaY * 1.2);
-        this.touchAimState.moved =
-          this.touchAimState.moved ||
-          Math.abs(pointer.worldX - this.touchAimState.startX) > 6 ||
-          Math.abs(deltaY) > 6;
-        this.markPredictionDirty();
-        this.syncHud();
-        return;
-      }
-
-      this.mouseAim(pointer);
-    });
-
-    this.input.on('pointerdown', (pointer) => {
-      const touchPointer = this.isTouchPointer(pointer);
-      if (touchPointer) {
-        this.ensureMobileFullscreen();
-      }
-      if (!touchPointer && !pointer.leftButtonDown()) return;
-      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
-      if (this.turnPhase === 'aim') {
-        if (touchPointer) {
-          const player = this.getActivePlayer();
-          this.touchAimState = {
-            pointerId: pointer.id,
-            startX: pointer.worldX,
-            startY: pointer.worldY,
-            basePower: player.power,
-            moved: false
-          };
-          this.mouseAim(pointer);
-          this.syncHud();
-          return;
-        }
-        this.mouseAim(pointer);
-        this.fireActiveWeapon();
-        this.syncHud();
-      } else if (this.turnPhase === 'move') {
-        const player = this.getActivePlayer();
-        const tapDistance = Phaser.Math.Distance.Between(pointer.worldX, pointer.worldY, player.x, player.y);
-        if (tapDistance < 44) {
-          this.mouseMoveTarget = null;
-          this.enterAimPhase();
-          return;
-        }
-        this.mouseMoveTarget = Phaser.Math.Clamp(pointer.worldX, 48, GAME_WIDTH - 48);
-      }
-    });
-
-    this.input.on('pointerup', (pointer) => {
-      if (!this.touchAimState) return;
-      if (!this.isTouchPointer(pointer)) return;
-      if (pointer.id !== this.touchAimState.pointerId) return;
-
-      const canResolve =
-        !this.overlayState &&
-        !this.gameOver &&
-        !this.resolving &&
-        !this.isCpuControlledPlayer() &&
-        this.turnPhase === 'aim';
-      if (canResolve) {
-        this.mouseAim(pointer);
-        this.fireActiveWeapon();
-        this.syncHud();
-      }
-      this.touchAimState = null;
-    });
-
-    this.input.on('wheel', (_ptr, _objs, _dx, deltaY) => {
-      if (this.overlayState || this.gameOver || this.resolving || this.isCpuControlledPlayer()) return;
-      if (this.turnPhase !== 'aim') return;
-      const player = this.getActivePlayer();
-      const dir = deltaY > 0 ? -1 : 1;
-      player.setPower(player.power + dir * POWER_STEP * 0.22);
-      this.markPredictionDirty();
-      this.syncHud();
-    });
+    this.inputController = new InputController(this);
+    this.inputController.bind();
   }
 
   setupSceneLifecycle() {
@@ -272,6 +172,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   destroyArcadeSystems() {
+    if (this.inputController) {
+      this.inputController.destroy();
+      this.inputController = null;
+    }
     if (this.arcadeFeedbackUnsubscribers) {
       this.arcadeFeedbackUnsubscribers.forEach((off) => off());
       this.arcadeFeedbackUnsubscribers = null;
@@ -292,6 +196,7 @@ export class GameScene extends Phaser.Scene {
       this.arcadeEvents.destroy();
       this.arcadeEvents = null;
     }
+    this.overlaySystem = null;
   }
 
   installArcadeFeedback() {
@@ -883,164 +788,43 @@ export class GameScene extends Phaser.Scene {
   }
 
   overlayActive() {
-    return Boolean(this.overlayState);
+    return this.overlaySystem?.overlayActive() ?? false;
   }
 
   showOverlay(payload) {
-    this.overlayState = payload;
-    this.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, payload);
+    this.overlaySystem?.showOverlay(payload);
   }
 
   clearOverlay() {
-    this.overlayState = null;
-    this.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, null);
+    this.overlaySystem?.clearOverlay();
   }
 
   showStartOverlay() {
-    this.showOverlay({
-      type: 'start',
-      title: 'CRATER COMMAND',
-      body: [
-        'Wind bends every shot.',
-        'Crater the hill. Finish the tank.'
-      ].join('\n'),
-      scoreboard: PLAYER_NAMES.map((name) => `${name}: ${this.highscores[name] ?? 0} wins`).join('\n'),
-      scores: PLAYER_NAMES.map((name) => ({
-        name,
-        wins: this.highscores[name] ?? 0
-      })),
-      kicker: 'ARCADE TANK DUEL',
-      tagline: 'Read the wind. Break the hill. Every map is different.',
-      modeLabel: this.getModeLabel(),
-      modeKey: this.currentMode,
-      hint: 'Click/Tap start  |  H/Help  |  M or Switch Mode link',
-      prompt: 'Click/Tap, Space or Enter to start'
-    });
+    this.overlaySystem?.showStartOverlay();
   }
 
   presentTurnOverlay() {
-    const player = this.getActivePlayer();
-    const mutatorLabel = this.mutatorSystem?.getHudLabel();
-    this.showTurnBanner(`${player.name} move phase`);
-    this.audioManager.playTurn();
-    this.showOverlay({
-      type: 'turn',
-      title: `${player.name} Turn`,
-      body: [
-        this.isCpuControlledPlayer() ? 'CPU turn active' : 'Hand-off: next player',
-        `Phase 1  Move`,
-        `Phase 2  Aim + Fire`,
-        mutatorLabel ? `Mutator  ${mutatorLabel}` : 'Mutator  none'
-      ].join('\n'),
-      scoreboard: this.buildScoreboardText(),
-      prompt: this.isCpuControlledPlayer()
-        ? 'CPU thinking...'
-        : 'Click/Tap, Space or Enter when ready  |  H or Help button'
-    });
-    this.syncHud();
-
-    if (this.isCpuControlledPlayer()) {
-      this.time.delayedCall(900, () => {
-        if (this.overlayState?.type === 'turn' && this.isCpuControlledPlayer()) {
-          this.clearOverlay();
-          this.startCpuTurn();
-          this.syncHud();
-        }
-      });
-    }
+    this.overlaySystem?.presentTurnOverlay();
   }
 
   showGameOverOverlay() {
-    const winnerLine = this.winner ? `${this.winner.name} wins the round.` : 'The round ends in a draw.';
-    this.showOverlay({
-      type: 'gameover',
-      title: 'Round Over',
-      body: [
-        winnerLine,
-        this.getModeLabel(),
-        '',
-        'Objective',
-        OBJECTIVE_TEXT,
-        '',
-        'Round Stats',
-        this.getRoundStatsText(),
-        '',
-        this.telemetrySystem?.getSummaryText() ?? ''
-      ].join('\n'),
-      scoreboard: this.buildScoreboardText(),
-      prompt: 'Click/Tap, Space, Enter or R for a new round  |  M/switch mode link  |  H/Help'
-    });
+    this.overlaySystem?.showGameOverOverlay();
   }
 
   buildScoreboardText() {
-    return [
-      'Highscore',
-      ...PLAYER_NAMES.map((name) => `${name}: ${this.highscores[name] ?? 0} wins`)
-    ].join('\n');
+    return this.overlaySystem?.buildScoreboardText() ?? '';
   }
 
   buildHelpBody() {
-    return [
-      'MISSION',
-      'Destroy the enemy tank before your own HP reaches 0.',
-      '',
-      'TURN LOOP',
-      '1) MOVE: reposition with Left/Right or click/tap terrain',
-      '2) AIM: set barrel angle + power, choose weapon',
-      '3) FIRE: one shot resolves fully, then turn swaps',
-      '',
-      'DAMAGE MODEL',
-      '- Center blast = highest damage',
-      '- Edge blast = reduced damage',
-      '- Terrain deformation changes future lines and cover',
-      '',
-      'ARCADE SYSTEMS',
-      '- Combo + Skillshots grant score bonuses',
-      '- Mutators can alter gravity/wind and late-round damage',
-      '- Press V for reduced motion mode'
-    ].join('\n');
+    return this.overlaySystem?.buildHelpBody() ?? '';
   }
 
   buildHelpSidebar() {
-    return [
-      'CONTROLS',
-      'Move ............ Left/Right or tap terrain',
-      'Skip move ....... Space or tap own tank',
-      'Aim ............. Mouse/drag or Up/Down',
-      'Power ........... Wheel/drag or A/D/J/L',
-      'Fire ............ Click/release or Space',
-      'Weapon .......... Q/E or mobile Weapon',
-      'Confirm overlay . Click/Space/Enter',
-      'Help ............ H / Esc / mobile Help',
-      'Reduced motion .. V',
-      'Restart ......... R',
-      '',
-      'WEAPONS',
-      'Basic Shell  - balanced',
-      'Heavy Mortar - slow, high blast',
-      'Split Shot   - 3 bomblets',
-      'Bouncer      - up to 3 rebounds',
-      '',
-      'FAST TIPS',
-      'Read wind before every shot.',
-      'Use craters to open direct-hit paths.',
-      'Move only as much as needed.',
-      '',
-      'MODE',
-      `${this.getModeLabel()} active`,
-      'Switch mode via M or the Switch Mode link on start/round-over.'
-    ].join('\n');
+    return this.overlaySystem?.buildHelpSidebar() ?? '';
   }
 
   showHelpOverlay() {
-    this.showOverlay({
-      type: 'help',
-      previousOverlay: this.overlayState ? { ...this.overlayState } : null,
-      title: 'Help',
-      body: this.buildHelpBody(),
-      scoreboard: this.buildHelpSidebar(),
-      prompt: 'Click/Tap, Esc, H, Space or Enter to close help'
-    });
+    this.overlaySystem?.showHelpOverlay();
   }
 
   startCpuTurn() {

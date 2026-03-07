@@ -262,6 +262,10 @@ npm run preview
   - Web-Audio-Synthese, dezente Wind-Ambience, Bouncer-Sound und Audio-Unlock nach User-Geste
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
+- `src/game/systems/InputController.js`
+  - kapselt Keyboard/Pointer/Wheel-Input inkl. sauberem `bind()`/`destroy()`
+- `src/game/systems/OverlayStateSystem.js`
+  - kapselt Overlay-State-Machine und Overlay-Textaufbau (Start/Turn/Help/GameOver)
 
 ## Technische Hinweise
 
@@ -288,6 +292,10 @@ npm run preview
   - gemeinsame Scene-/Event-Kontrakte in `sceneContracts.js`
   - `GameScene.create()` in klar getrennte Setup-Methoden zerlegt
   - `BootScene` startet Ziel-Scenes per Kontrakt und stoppt sich danach
+- `Refactor Phase 2` abgeschlossen (Gameplay-Module):
+  - Input aus `GameScene` in `InputController` extrahiert
+  - Overlay-Flow in `OverlayStateSystem` extrahiert
+  - `GameScene` delegiert Overlay-Methoden und bleibt Orchestrator
 
 ## Troubleshooting
 
