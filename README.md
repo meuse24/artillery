@@ -215,6 +215,7 @@ npm run preview
 - Phase-1-Arcade-Foundation: Event-Bus, konfigurierbare Feature-Flags, getrennte Scoring-/Mutator-Systeme als Erweiterungsschicht
 - Phase-2-Arcade-Scoring: Combo-Multiplikator, Skillshots (`DIRECT HIT`, `BANK SHOT`, `LONG SHOT`, `LAST SECOND`) und Live-Score im HUD
 - Phase-3-Mutatoren: turn-basierte Modifikatoren (`Low Gravity`, `Wind Pulse`) plus `Sudden Death` Damage-Scaling ab spaeter Runde
+- Phase-4-Inszenierung: KO-Finisher-Callout, staerkere Combo-Ansagen und optional `Reduced Motion`-Modus (`V`)
 
 ## Architektur
 
@@ -226,10 +227,11 @@ npm run preview
 - `src/game/scenes/GameScene.js`
   - Kern des Spiels: Match-Flow, Keyboard/Maus/Touch-Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
   - emittiert zusaetzlich Arcade-Events (Shot/Bounce/Damage/Turn/Round) fuer entkoppelte Folge-Features
+  - enthaelt Finisher-Inszenierung und Reduced-Motion-Schalter fuer Accessibility
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
 - `src/game/arcade/arcadeConfig.js`
-  - zentrale Feature-Flags und Limits fuer Arcade-Erweiterungen
+  - zentrale Feature-Flags, Scoring-/Mutator-Parameter und Accessibility-Defaults
 - `src/game/arcade/events.js`
   - Event-Namen fuer die Arcade-Schicht
 - `src/game/systems/ArcadeEventBus.js`
@@ -268,7 +270,8 @@ npm run preview
 - `Phase 1` abgeschlossen: Arcade-Foundation (Events, Config, Scoring-/Mutator-Systeme, Lint-Workflow)
 - `Phase 2` abgeschlossen: Skillshots + Combo-Meta + HUD-Scoring
 - `Phase 3` abgeschlossen: Turn-Mutatoren + Sudden-Death-Skalierung
-- `Phase 4+` offen: Crates/Events, Finisher-Ausbau, weitere Meta-Progression
+- `Phase 4` abgeschlossen: Finisher-Inszenierung + Reduced Motion
+- `Phase 5+` offen: Crates/Events, weitere Meta-Progression
 
 ## Troubleshooting
 

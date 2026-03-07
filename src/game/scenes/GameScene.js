@@ -58,6 +58,7 @@ export class GameScene extends Phaser.Scene {
       config: this.arcadeConfig
     });
     this.installArcadeFeedback();
+    this.reducedMotion = this.arcadeConfig.accessibility.reducedMotionDefault;
     this.currentMode = 'cpu';
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
@@ -111,7 +112,8 @@ export class GameScene extends Phaser.Scene {
       esc: Phaser.Input.Keyboard.KeyCodes.ESC,
       enter: Phaser.Input.Keyboard.KeyCodes.ENTER,
       space: Phaser.Input.Keyboard.KeyCodes.SPACE,
-      r: Phaser.Input.Keyboard.KeyCodes.R
+      r: Phaser.Input.Keyboard.KeyCodes.R,
+      v: Phaser.Input.Keyboard.KeyCodes.V
     });
 
     // Mouse / pointer input
@@ -250,6 +252,14 @@ export class GameScene extends Phaser.Scene {
       this.arcadeEvents.on(ARCADE_EVENTS.COMBO_UPDATED, ({ playerName, multiplier }) => {
         if (multiplier > 1) {
           this.showTurnBanner(`${playerName} combo x${multiplier.toFixed(2)}`);
+          if (multiplier >= 1.5) {
+            this.spawnImpactCallout(
+              GAME_WIDTH * 0.5,
+              172,
+              `${playerName} COMBO x${multiplier.toFixed(2)}`,
+              '#fff0bf'
+            );
+          }
         }
       }),
       this.arcadeEvents.on(ARCADE_EVENTS.TURN_STARTED, ({ mutator }) => {
@@ -294,8 +304,19 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  getMotionScale() {
+    return this.reducedMotion ? this.arcadeConfig.accessibility.reducedMotionScale : 1;
+  }
+
+  toggleReducedMotion() {
+    this.reducedMotion = !this.reducedMotion;
+    this.showTurnBanner(this.reducedMotion ? 'Reduced motion ON' : 'Reduced motion OFF');
+    this.syncHud();
+  }
+
   triggerHitStop(duration = 0.06) {
-    this.hitStopTimer = Math.max(this.hitStopTimer, duration);
+    const scaledDuration = duration * this.getMotionScale();
+    this.hitStopTimer = Math.max(this.hitStopTimer, scaledDuration);
   }
 
   installAudioUnlock() {
@@ -932,6 +953,7 @@ export class GameScene extends Phaser.Scene {
       'Weapon: Q/E or mobile Weapon button',
       'Overlay confirm: click/tap, Space, or Enter',
       'Help: H, Esc, or mobile Help button',
+      'Reduced motion: V',
       'Restart: R or click/tap on game-over',
       '',
       'Weapons',
@@ -1173,6 +1195,10 @@ export class GameScene extends Phaser.Scene {
     if (Phaser.Input.Keyboard.JustDown(this.inputKeys.h)) {
       this.showHelpOverlay();
       return;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.inputKeys.v)) {
+      this.toggleReducedMotion();
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.inputKeys.r)) {
@@ -1763,7 +1789,13 @@ export class GameScene extends Phaser.Scene {
 
     this.focusCameraOn(x, y, 220, 1.07);
     this.audioManager.playExplosion(weapon);
-    this.cameras.main.shake(180, 0.004 + weapon.blastRadius / 40000);
+    const motionScale = this.getMotionScale();
+    if (motionScale > 0) {
+      this.cameras.main.shake(
+        Math.round(180 * motionScale),
+        (0.004 + weapon.blastRadius / 40000) * motionScale
+      );
+    }
     this.playArcadeImpactFx(x, y, weapon);
     this.terrain.deformCircle(crater.x, crater.y, weapon.blastRadius, { profile: 'crater' });
     // A shallow secondary carve guarantees visible surface damage on direct ground hits.
@@ -2012,6 +2044,44 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
+  playKoFinisher() {
+    if (!this.winner) {
+      return;
+    }
+
+    const loser = this.players.find((tank) => tank !== this.winner);
+    const x = loser?.x ?? GAME_WIDTH * 0.5;
+    const y = loser?.y ?? GAME_HEIGHT * 0.5;
+    const motionScale = this.getMotionScale();
+
+    this.triggerHitStop(0.1);
+    if (motionScale > 0) {
+      this.cameras.main.shake(Math.round(220 * motionScale), 0.006 * motionScale);
+    }
+    this.spawnImpactCallout(x, y - 54, 'K.O.', '#ffb45f');
+    this.particles.explode(24, x, y - 10);
+
+    const koText = this.add
+      .text(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.32, 'FINISHER', {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '52px',
+        fontStyle: 'bold',
+        color: '#ffdca0'
+      })
+      .setOrigin(0.5)
+      .setDepth(96)
+      .setStroke('#1a1208', 7);
+    koText.setShadow(0, 3, '#000000', 10, true, true);
+    this.tweens.add({
+      targets: koText,
+      alpha: 0,
+      y: koText.y - 20,
+      duration: 620,
+      ease: 'Cubic.Out',
+      onComplete: () => koText.destroy()
+    });
+  }
+
   checkWinState() {
     const living = this.players.filter((tank) => tank.isAlive());
     if (living.length > 1) {
@@ -2024,6 +2094,7 @@ export class GameScene extends Phaser.Scene {
     this.winner = living[0] ?? null;
     if (this.winner) {
       this.highscores = this.scoreStore.recordWin(this.winner.name);
+      this.playKoFinisher();
     }
     const banner = this.winner ? `${this.winner.name} wins` : 'Draw';
     this.showTurnBanner(banner);
@@ -2242,6 +2313,7 @@ export class GameScene extends Phaser.Scene {
       isCpuTurn: this.isCpuControlledPlayer(),
       weather: this.weather?.getLabel() ?? '',
       mutator: this.mutatorSystem?.getHudLabel() ?? '',
+      reducedMotion: this.reducedMotion,
       arcade: this.arcadeScoring?.getSnapshot() ?? { players: {} }
     };
   }

@@ -27,6 +27,10 @@ export const ARCADE_CONFIG = Object.freeze({
     suddenDeathTurn: 12,
     suddenDeathDamageMultiplier: 1.25
   },
+  accessibility: {
+    reducedMotionDefault: false,
+    reducedMotionScale: 0.45
+  },
   limits: {
     recentEvents: 120,
     feedItems: 6

@@ -982,19 +982,20 @@ export class UIScene extends Phaser.Scene {
 
     const weatherTag = state.weather ? `  |  ${state.weather}` : '';
     const mutatorTag = state.mutator ? `  |  Mutator ${state.mutator}` : '';
+    const motionTag = state.reducedMotion ? '  |  Motion Reduced' : '';
     this.centerText.setText(
       state.gameOver
         ? state.winner
           ? `${state.winner} wins  |  Click/Tap or R for a new map`
           : 'Draw  |  Click/Tap or R for a new map'
-        : `${state.mode}${weatherTag}${mutatorTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
+        : `${state.mode}${weatherTag}${mutatorTag}${motionTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
     );
     this.controlsText.setText(
       state.gameOver
-        ? 'Click/Tap or R to restart  |  H/Help'
+        ? 'Click/Tap or R to restart  |  V Motion  |  H/Help'
         : state.phase === 'move'
-          ? 'Move: ←/→ or click/tap ground  |  Skip: click/tap own tank or Space  |  H/Help'
-          : 'Aim: mouse/touch or ↑↓  |  Power: wheel/drag or A/D/J/L  |  Fire: click/release/Space'
+          ? 'Move: ←/→ or click/tap ground  |  Skip: click/tap own tank or Space  |  V Motion  |  H/Help'
+          : 'Aim: mouse/touch or ↑↓  |  Power: wheel/drag or A/D/J/L  |  Fire: click/release/Space  |  V Motion'
     );
     if (this.isTouchDevice) {
       const canSwitch = !state.gameOver && state.phase === 'aim' && !state.isCpuTurn;
