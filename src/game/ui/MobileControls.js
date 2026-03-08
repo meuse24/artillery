@@ -9,7 +9,8 @@ export class MobileControls {
       return;
     }
 
-    this.onWeaponDown = () => {
+    this.onWeaponDown = (_pointer, _lx, _ly, event) => {
+      event?.stopPropagation();
       const gameScene = this.scene.gameScene;
       if (!gameScene) return;
       if (gameScene.overlayState || gameScene.gameOver || gameScene.resolving || gameScene.isCpuControlledPlayer()) return;
@@ -22,7 +23,8 @@ export class MobileControls {
     this.onWeaponOver = () => this.scene.mobileWeaponButton.setBackgroundColor('rgba(26,48,63,0.95)');
     this.onWeaponOut = () => this.scene.mobileWeaponButton.setBackgroundColor('rgba(11,22,30,0.9)');
 
-    this.onHelpDown = () => {
+    this.onHelpDown = (_pointer, _lx, _ly, event) => {
+      event?.stopPropagation();
       const gameScene = this.scene.gameScene;
       if (!gameScene) return;
       if (gameScene.overlayState?.type === 'help') {

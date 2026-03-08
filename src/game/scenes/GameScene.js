@@ -1,5 +1,6 @@
 import Phaser from 'phaser';
 import {
+  AIM_TIME_LIMIT,
   AIM_SPEED,
   BARREL_LENGTH,
   GAME_HEIGHT,
@@ -8,11 +9,11 @@ import {
   MAX_PITCH,
   MIN_PITCH,
   MOVE_PER_TURN,
+  MOVE_TIME_LIMIT,
   MOVE_SPEED,
   PLAYER_COLORS,
   PLAYER_NAMES,
   POWER_STEP,
-  TURN_TIME_LIMIT,
   WIND_LIMIT
 } from '../constants.js';
 import { Tank } from '../entities/Tank.js';
@@ -26,6 +27,8 @@ import { OverlayStateSystem } from '../systems/OverlayStateSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
+import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
+import { playTitleSong, stopTitleSong } from '../systems/TitleSongManager.js';
 import { InputController } from '../systems/InputController.js';
 import { VisualFxPool } from '../systems/VisualFxPool.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
@@ -80,6 +83,9 @@ export class GameScene extends Phaser.Scene {
   setupRuntimeState() {
     this.reducedMotion = this.arcadeConfig.accessibility.reducedMotionDefault;
     this.currentMode = 'cpu';
+    this.startPreferences = loadLaunchPreferences();
+    this.fullscreenEnabled = this.startPreferences.fullscreen;
+    this.audioEnabled = this.startPreferences.sound;
     this.roundStats = this.createRoundStats();
     this.cpuState = null;
     this.ambientTime = Phaser.Math.FloatBetween(0, Math.PI * 2);
@@ -100,6 +106,12 @@ export class GameScene extends Phaser.Scene {
     this.mouseMoveTarget = null;
     this.touchAimState = null;
     this.mobileFullscreenRequested = false;
+    this.pointerInputBlockUntil = 0;
+  }
+
+  blockPointerInput(durationMs = 160) {
+    const now = this.time?.now ?? 0;
+    this.pointerInputBlockUntil = Math.max(this.pointerInputBlockUntil ?? 0, now + durationMs);
   }
 
   createFxLayers() {
@@ -174,6 +186,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   destroyArcadeSystems() {
+    this.audioManager?.setDrive(false, 0);
     if (this.inputController) {
       this.inputController.destroy();
       this.inputController = null;
@@ -247,6 +260,7 @@ export class GameScene extends Phaser.Scene {
   ensureMobileFullscreen() {
     if (this.mobileFullscreenRequested) return;
     if (!this.sys.game.device.input.touch) return;
+    if (!this.fullscreenEnabled) return;
     this.mobileFullscreenRequested = true;
 
     if (!this.scale.isFullscreen) {
@@ -359,6 +373,97 @@ export class GameScene extends Phaser.Scene {
 
   getModeLabel() {
     return this.currentMode === 'cpu' ? 'Solo vs CPU' : 'Local Duel';
+  }
+
+  getStartPreferences() {
+    return { ...this.startPreferences };
+  }
+
+  setAudioEnabled(enabled) {
+    this.audioEnabled = Boolean(enabled);
+    this.audioManager?.setMuted(!this.audioEnabled);
+    if (this.audioEnabled) {
+      this.audioManager?.unlock();
+      this.audioManager?.setWind(this.wind ?? 0);
+    } else {
+      this.audioManager?.setDrive(false, 0);
+      stopTitleSong();
+    }
+  }
+
+  setFullscreenEnabled(enabled) {
+    this.fullscreenEnabled = Boolean(enabled);
+    if (!this.fullscreenEnabled && this.scale?.isFullscreen) {
+      try {
+        this.scale.stopFullscreen();
+      } catch {
+        // ignore fullscreen exit failures
+      }
+    }
+  }
+
+  setStartPreference(key, value) {
+    if (!this.startPreferences || !(key in this.startPreferences)) {
+      return;
+    }
+
+    const normalized = Boolean(value);
+    this.startPreferences[key] = normalized;
+    this.startPreferences = saveLaunchPreferences(this.startPreferences);
+    if (key === 'sound') {
+      this.setAudioEnabled(normalized);
+    } else if (key === 'fullscreen') {
+      this.setFullscreenEnabled(normalized);
+    }
+    if (this.overlayState?.type === 'start') {
+      this.showStartOverlay();
+    }
+  }
+
+  toggleStartPreference(key) {
+    if (!this.startPreferences || !(key in this.startPreferences)) {
+      return;
+    }
+    this.setStartPreference(key, !this.startPreferences[key]);
+  }
+
+  applyStartPreferences({ requestFullscreen = false } = {}) {
+    this.setAudioEnabled(this.startPreferences.sound);
+    this.setFullscreenEnabled(this.startPreferences.fullscreen);
+
+    if (
+      requestFullscreen &&
+      this.startPreferences.fullscreen &&
+      this.scale &&
+      !this.scale.isFullscreen
+    ) {
+      let fullscreenHandled = false;
+      const rejectFullscreen = () => {
+        if (fullscreenHandled) {
+          return;
+        }
+        fullscreenHandled = true;
+        this.startPreferences.fullscreen = false;
+        this.startPreferences = saveLaunchPreferences(this.startPreferences);
+        this.setFullscreenEnabled(false);
+        this.showTurnBanner('Fullscreen blocked by browser. Continue in window mode.');
+      };
+
+      try {
+        const request = this.scale.startFullscreen();
+        if (request?.catch) {
+          request.catch(() => rejectFullscreen());
+        }
+      } catch {
+        rejectFullscreen();
+      }
+
+      this.time?.delayedCall(220, () => {
+        if (!this.scale?.isFullscreen) {
+          rejectFullscreen();
+        }
+      });
+    }
   }
 
   setMode(mode) {
@@ -495,6 +600,23 @@ export class GameScene extends Phaser.Scene {
       );
       tank.updateAnimation(dt, this.wind);
     });
+  }
+
+  updateDriveAudio() {
+    if (!this.audioManager) {
+      return;
+    }
+
+    const driving =
+      !this.overlayActive() &&
+      !this.resolving &&
+      !this.gameOver &&
+      this.turnPhase === 'move' &&
+      this.activeTankDriving;
+    const activePlayer = this.getActivePlayer();
+    const slopeBoost = activePlayer ? Math.abs(activePlayer.terrainSlope) * 0.55 : 0;
+    const intensity = Phaser.Math.Clamp(0.68 + slopeBoost, 0.65, 1);
+    this.audioManager.setDrive(driving, intensity);
   }
 
   updateTankStability(dt) {
@@ -678,7 +800,8 @@ export class GameScene extends Phaser.Scene {
     this.turnIndex = Phaser.Math.Between(0, 1);
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
-    this.turnTimer = TURN_TIME_LIMIT;
+    this.moveTimer = MOVE_TIME_LIMIT;
+    this.aimTimer = AIM_TIME_LIMIT;
     this.resolving = false;
     this.turnPending = false;
     this.gameOver = false;
@@ -710,6 +833,7 @@ export class GameScene extends Phaser.Scene {
     this.renderWindRibbon();
     this.markPredictionDirty();
     this.syncHud();
+    this.emitTimerUpdate();
 
     if (showTurnOverlay) {
       this.presentTurnOverlay();
@@ -743,6 +867,9 @@ export class GameScene extends Phaser.Scene {
   }
 
   getActivePlayer() {
+    if (!this.players || typeof this.turnIndex === 'undefined') {
+      return null;
+    }
     return this.players[this.turnIndex];
   }
 
@@ -803,6 +930,17 @@ export class GameScene extends Phaser.Scene {
 
   clearOverlay() {
     this.overlaySystem?.clearOverlay();
+  }
+
+  syncTitleMusicState(overlay = this.overlayState) {
+    const shouldPlay =
+      Boolean(this.startPreferences?.sound) &&
+      (overlay?.type === 'start' || overlay?.type === 'help' || overlay?.type === 'gameover');
+    if (shouldPlay) {
+      playTitleSong();
+    } else {
+      stopTitleSong();
+    }
   }
 
   showStartOverlay() {
@@ -1025,6 +1163,7 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta / 1000, 0.032);
     if (this.hitStopTimer > 0) {
       this.hitStopTimer = Math.max(0, this.hitStopTimer - dt);
+      this.audioManager.setDrive(false, 0);
       return;
     }
     this.activeTankDriving = false;
@@ -1038,10 +1177,12 @@ export class GameScene extends Phaser.Scene {
     if (this.overlayActive()) {
       this.handleOverlayInput();
       this.updateTankAnimations(dt);
+      this.audioManager.setDrive(false, 0);
       return;
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.inputKeys.h)) {
+      this.audioManager.setDrive(false, 0);
       this.showHelpOverlay();
       return;
     }
@@ -1051,6 +1192,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (Phaser.Input.Keyboard.JustDown(this.inputKeys.r)) {
+      this.audioManager.setDrive(false, 0);
       this.startMatch();
       return;
     }
@@ -1069,6 +1211,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.updateTankAnimations(dt);
       this.updateProjectiles(dt);
+      this.updateDriveAudio();
       return;
     }
 
@@ -1091,6 +1234,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.updateTankAnimations(dt);
     this.updateProjectiles(dt);
+    this.updateDriveAudio();
   }
 
   handleOverlayInput() {
@@ -1282,17 +1426,35 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    this.turnTimer = Math.max(0, this.turnTimer - dt);
-    this.events.emit(GAME_SCENE_EVENTS.TIMER_UPDATE, this.turnTimer, TURN_TIME_LIMIT);
-
-    if (this.turnTimer <= 0) {
-      if (this.turnPhase === 'move') {
+    if (this.turnPhase === 'move') {
+      this.moveTimer = Math.max(0, this.moveTimer - dt);
+      this.emitTimerUpdate();
+      if (this.moveTimer <= 0) {
         this.enterAimPhase();
-      } else {
-        // Auto-fire when aim timer runs out
-        this.fireActiveWeapon();
       }
+      return;
     }
+
+    this.aimTimer = Math.max(0, this.aimTimer - dt);
+    this.emitTimerUpdate();
+    if (this.aimTimer <= 0) {
+      // Auto-fire when aim timer runs out
+      this.fireActiveWeapon();
+    }
+  }
+
+  emitTimerUpdate() {
+    this.events.emit(GAME_SCENE_EVENTS.TIMER_UPDATE, {
+      phase: this.turnPhase,
+      move: {
+        remaining: this.moveTimer ?? MOVE_TIME_LIMIT,
+        total: MOVE_TIME_LIMIT
+      },
+      aim: {
+        remaining: this.aimTimer ?? AIM_TIME_LIMIT,
+        total: AIM_TIME_LIMIT
+      }
+    });
   }
 
   mouseAim(pointer) {
@@ -1316,7 +1478,9 @@ export class GameScene extends Phaser.Scene {
     this.touchAimState = null;
     this.mouseMoveTarget = null;
     this.turnPhase = 'aim';
+    this.moveTimer = 0;
     this.markPredictionDirty();
+    this.emitTimerUpdate();
     this.showTurnBanner(`${this.getActivePlayer().name} aim phase`);
     this.syncHud();
   }
@@ -1346,7 +1510,7 @@ export class GameScene extends Phaser.Scene {
       weaponId: weapon.id,
       x: origin.x,
       y: origin.y,
-      turnTimer: this.turnTimer,
+      turnTimer: this.aimTimer,
       wind: this.wind,
       weather: this.weather.getLabel()
     });
@@ -2007,6 +2171,7 @@ export class GameScene extends Phaser.Scene {
       this.highscores = this.scoreStore.recordWin(this.winner.name);
       this.playKoFinisher();
     }
+    this.audioManager.playGameOver({ winner: Boolean(this.winner) });
     const banner = this.winner ? `${this.winner.name} wins` : 'Draw';
     this.showTurnBanner(banner);
     this.arcadeEvents?.emit(ARCADE_EVENTS.ROUND_ENDED, {
@@ -2037,7 +2202,8 @@ export class GameScene extends Phaser.Scene {
 
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
-    this.turnTimer = TURN_TIME_LIMIT;
+    this.moveTimer = MOVE_TIME_LIMIT;
+    this.aimTimer = AIM_TIME_LIMIT;
     let nextWind = this.weather.applyStormWind(this.rollWind(), WIND_LIMIT);
     const mutatorEffect = this.mutatorSystem?.onTurnStart({
       turnNumber: this.turnNumber,
@@ -2062,6 +2228,7 @@ export class GameScene extends Phaser.Scene {
     this.audioManager.setWind(this.wind);
     this.renderWindRibbon();
     this.markPredictionDirty();
+    this.emitTimerUpdate();
     this.presentTurnOverlay();
   }
 
@@ -2193,6 +2360,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   getHudState() {
+    const moveTimer = this.moveTimer ?? MOVE_TIME_LIMIT;
+    const aimTimer = this.aimTimer ?? AIM_TIME_LIMIT;
+    const activeTimer = this.turnPhase === 'move' ? moveTimer : aimTimer;
+
     return {
       activePlayerIndex: this.turnIndex,
       activePlayerName: this.getActivePlayer()?.name ?? '',
@@ -2220,7 +2391,11 @@ export class GameScene extends Phaser.Scene {
       }),
       gameOver: this.gameOver,
       winner: this.winner?.name ?? null,
-      turnTimer: Math.ceil(this.turnTimer ?? TURN_TIME_LIMIT),
+      turnTimer: Math.ceil(activeTimer),
+      moveTimer: Math.ceil(moveTimer),
+      aimTimer: Math.ceil(aimTimer),
+      moveTimerTotal: MOVE_TIME_LIMIT,
+      aimTimerTotal: AIM_TIME_LIMIT,
       isCpuTurn: this.isCpuControlledPlayer(),
       weather: this.weather?.getLabel() ?? '',
       mutator: this.mutatorSystem?.getHudLabel() ?? '',

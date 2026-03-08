@@ -157,12 +157,22 @@ Das Spiel verwendet ein kleines generiertes Web-Audio-System statt externer Soun
 - Bouncer-Aufprall-Sound
 - Explosionen
 - Trefferfeedback
+- Titelsong (als externe OGG-Datei, dezent abgemischt)
+
+Die Lautstaerke ist auf ein ausgewogenes Verhaeltnis zwischen Hintergrundmusik und aktiven Spielsounds optimiert.
 
 Wichtiger Browser-Hinweis:
 
 - Web Audio wird erst nach echter Benutzerinteraktion freigeschaltet.
-- Nach dem Laden einmal klicken, tippen oder eine Taste druecken.
-- Wenn Audio im Dev-Tab nicht sofort startet, Seite einmal hart neu laden und erneut interagieren.
+- Das Spiel nutzt einen vorgeschalteten **Boot-Screen**, um diese Interaktion (Audio-Unlock + Fullscreen) technisch sauber abzuhandeln, bevor das eigentliche Match startet.
+
+## Boot-Screen & Einstellungen
+
+Beim ersten Laden erscheint ein eigenstaendiger Boot-Screen:
+- **Technische Initialisierung**: Schaltet Audio-Kontext frei und fordert (optional) Fullscreen an.
+- **Einstellungen**: Fullscreen und Sound können vorab konfiguriert werden.
+- **Persistenz**: Gewaehlte Einstellungen werden im `localStorage` gespeichert und beim nächsten Start automatisch geladen.
+- **Transition**: Ein weicher Fade-Out leitet zum eigentlichen Spiel-Startscreen über.
 
 ## Run
 
@@ -224,8 +234,10 @@ npm run preview
   - Phaser-Konfiguration, Scale-Setup, Szenenregistrierung
   - Phaser-eigenes Audio ist deaktiviert; Audio laeuft ueber den eigenen `AudioManager`
 - `src/game/scenes/BootScene.js`
-  - Bootstrapping und kleine Runtime-Assets wie die Partikel-Textur
-  - startet Game/UI ueber zentrale Scene-Keys und beendet sich danach selbst
+  - Technischer Einstiegspunkt und Standalone-Screen.
+  - Handelt Audio-Unlock, Fullscreen-Anfragen und initiale Benutzereinstellungen (Sound/Fullscreen) ab.
+  - Persistiert Einstellungen via `LaunchPreferencesStore` im `localStorage`.
+  - Startet Game/UI erst nach Benutzer-Interaktion ("START") mit Fade-Transition und entfernt sich danach selbst aus dem Speicher.
 - `src/game/scenes/GameScene.js`
   - Kern des Spiels: Match-Flow, Keyboard/Maus/Touch-Input, Projektilsimulation, Bounce-Physik, Explosionen, CPU-Zuege, Kamera, Windanzeige, Zugtimer, Overlays, Stats und Modusumschaltung
   - `create()` ist als Spine in Setup-Schritte geteilt (`setupCoreSystems`, `setupRuntimeState`, `createFxLayers`, `setupInputHandlers`, `setupSceneLifecycle`)

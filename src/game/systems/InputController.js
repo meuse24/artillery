@@ -60,6 +60,7 @@ export class InputController {
         scene.ensureMobileFullscreen();
       }
       if (!touchPointer && !pointer.leftButtonDown()) return;
+      if (scene.time.now < (scene.pointerInputBlockUntil ?? 0)) return;
       if (scene.overlayState || scene.gameOver || scene.resolving || scene.isCpuControlledPlayer()) return;
       if (scene.turnPhase === 'aim') {
         if (touchPointer) {
@@ -91,6 +92,10 @@ export class InputController {
     };
 
     this.onPointerUp = (pointer) => {
+      if (scene.time.now < (scene.pointerInputBlockUntil ?? 0)) {
+        scene.touchAimState = null;
+        return;
+      }
       if (!scene.touchAimState) return;
       if (!scene.isTouchPointer(pointer)) return;
       if (pointer.id !== scene.touchAimState.pointerId) return;

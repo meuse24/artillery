@@ -16,11 +16,13 @@ export class OverlayStateSystem {
   showOverlay(payload) {
     this.scene.overlayState = payload;
     this.scene.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, payload);
+    this.scene.syncTitleMusicState?.(payload);
   }
 
   clearOverlay() {
     this.scene.overlayState = null;
     this.scene.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, null);
+    this.scene.syncTitleMusicState?.(null);
   }
 
   showStartOverlay() {
@@ -40,8 +42,7 @@ export class OverlayStateSystem {
       tagline: 'Read the wind. Break the hill. Every map is different.',
       modeLabel: this.scene.getModeLabel(),
       modeKey: this.scene.currentMode,
-      hint: 'Click/Tap start  |  H/Help  |  M or Switch Mode link',
-      prompt: 'Click/Tap, Space or Enter to start'
+      prompt: 'Click/Tap, Space or Enter to continue'
     });
   }
 
@@ -52,7 +53,7 @@ export class OverlayStateSystem {
     this.scene.audioManager.playTurn();
     this.showOverlay({
       type: 'turn',
-      title: `${player.name} Turn`,
+      title: `PLAYER ${player.name.toUpperCase()} READY?`,
       body: [
         this.scene.isCpuControlledPlayer() ? 'CPU turn active' : 'Hand-off: next player',
         'Phase 1  Move',
@@ -79,11 +80,11 @@ export class OverlayStateSystem {
 
   showGameOverOverlay() {
     const winnerLine = this.scene.winner
-      ? `${this.scene.winner.name} wins the round.`
-      : 'The round ends in a draw.';
+      ? `${this.scene.winner.name} wins the game.`
+      : 'The game ends in a draw.';
     this.showOverlay({
       type: 'gameover',
-      title: 'Round Over',
+      title: 'Game Over',
       body: [
         winnerLine,
         this.scene.getModeLabel(),
@@ -91,13 +92,13 @@ export class OverlayStateSystem {
         'Objective',
         this.objectiveText,
         '',
-        'Round Stats',
+        'Game Stats',
         this.scene.getRoundStatsText(),
         '',
         this.scene.telemetrySystem?.getSummaryText() ?? ''
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
-      prompt: 'Click/Tap, Space, Enter or R for a new round  |  M/switch mode link  |  H/Help'
+      prompt: 'Click/Tap, Space, Enter or R for a new game  |  M/switch mode link  |  H/Help'
     });
   }
 
@@ -109,6 +110,7 @@ export class OverlayStateSystem {
   }
 
   buildHelpBody() {
+    const currentYear = new Date().getFullYear();
     return [
       'MISSION',
       'Destroy the enemy tank before your own HP reaches 0.',
@@ -126,7 +128,25 @@ export class OverlayStateSystem {
       'ARCADE SYSTEMS',
       '- Combo + Skillshots grant score bonuses',
       '- Mutators can alter gravity/wind and late-round damage',
-      '- Press V for reduced motion mode'
+      '- Press V for reduced motion mode',
+      '',
+      'TECH STACK',
+      'JavaScript (ES Modules)',
+      'Phaser 3 (WebGL/Canvas)',
+      'Vite build pipeline',
+      'Web Audio API',
+      '',
+      'LIBRARIES',
+      'phaser 3.90.0  - MIT',
+      'vite 7.3.1     - MIT',
+      'eslint 9.39.4  - MIT',
+      'globals 16.5.0 - MIT',
+      '',
+      'CREDITS',
+      `(C) ${currentYear} MEUSE24`,
+      'Thanks to Phaser, Vite, ESLint,',
+      'Claude Code, Codex,',
+      'and the developers of all open-source tooling.'
     ].join('\n');
   }
 
@@ -157,7 +177,7 @@ export class OverlayStateSystem {
       '',
       'MODE',
       `${this.scene.getModeLabel()} active`,
-      'Switch mode via M or the Switch Mode link on start/round-over.'
+      'Switch mode via M or the Switch Mode link on start/game-over.'
     ].join('\n');
   }
 

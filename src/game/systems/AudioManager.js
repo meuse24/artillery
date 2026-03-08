@@ -2,6 +2,7 @@ export class AudioManager {
   constructor() {
     this.context = null;
     this.unlocked = false;
+    this.muted = false;
     this.windAmount = 0;
     this.windSource = null;
     this.windHighpass = null;
@@ -10,6 +11,39 @@ export class AudioManager {
     this.windLfo = null;
     this.windLfoGain = null;
     this.noiseBuffer = null;
+    this.driveSource = null;
+    this.driveBandpass = null;
+    this.driveLowpass = null;
+    this.driveGain = null;
+    this.drivePulse = null;
+    this.drivePulseGain = null;
+    this.driveTone = null;
+    this.driveToneGain = null;
+  }
+
+  setMuted(muted) {
+    this.muted = Boolean(muted);
+    if (!this.context) {
+      return;
+    }
+
+    const now = this.context.currentTime;
+    if (this.muted) {
+      this.windGain?.gain.cancelScheduledValues(now);
+      this.windGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.driveGain?.gain.cancelScheduledValues(now);
+      this.driveGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.driveToneGain?.gain.cancelScheduledValues(now);
+      this.driveToneGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.drivePulseGain?.gain.cancelScheduledValues(now);
+      this.drivePulseGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      return;
+    }
+
+    if (this.unlocked && this.context.state === 'running') {
+      this.ensureWindBed();
+      this.setWind(this.windAmount);
+    }
   }
 
   unlock() {
@@ -34,8 +68,10 @@ export class AudioManager {
       return false;
     }
 
-    this.ensureWindBed();
-    this.setWind(this.windAmount);
+    if (!this.muted) {
+      this.ensureWindBed();
+      this.setWind(this.windAmount);
+    }
     return true;
   }
 
@@ -59,8 +95,8 @@ export class AudioManager {
     this.noiseBuffer = buffer;
   }
 
-  tone({ frequency, duration, type = 'sine', gain = 0.03, delay = 0 }) {
-    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+  tone({ frequency, duration, type = 'sine', gain = 0.05, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) {
       return;
     }
 
@@ -81,8 +117,8 @@ export class AudioManager {
     oscillator.stop(startAt + duration + 0.03);
   }
 
-  sweep({ from, to, duration, type = 'sawtooth', gain = 0.03, delay = 0 }) {
-    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+  sweep({ from, to, duration, type = 'sawtooth', gain = 0.05, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) {
       return;
     }
 
@@ -103,8 +139,8 @@ export class AudioManager {
     oscillator.stop(startAt + duration + 0.04);
   }
 
-  noiseBurst({ duration = 0.14, gain = 0.02, highpass = 120, lowpass = 2200, delay = 0 }) {
-    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+  noiseBurst({ duration = 0.14, gain = 0.035, highpass = 120, lowpass = 2200, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) {
       return;
     }
 
@@ -180,9 +216,99 @@ export class AudioManager {
     this.windLfo.start();
   }
 
+  ensureDriveLoop() {
+    if (!this.context || this.driveSource) {
+      return;
+    }
+
+    this.createNoiseBuffer();
+
+    this.driveSource = this.context.createBufferSource();
+    this.driveSource.buffer = this.noiseBuffer;
+    this.driveSource.loop = true;
+
+    this.driveBandpass = this.context.createBiquadFilter();
+    this.driveBandpass.type = 'bandpass';
+    this.driveBandpass.frequency.setValueAtTime(180, this.context.currentTime);
+    this.driveBandpass.Q.value = 1.1;
+
+    this.driveLowpass = this.context.createBiquadFilter();
+    this.driveLowpass.type = 'lowpass';
+    this.driveLowpass.frequency.setValueAtTime(900, this.context.currentTime);
+    this.driveLowpass.Q.value = 0.55;
+
+    this.driveGain = this.context.createGain();
+    this.driveGain.gain.setValueAtTime(0.0001, this.context.currentTime);
+
+    this.drivePulse = this.context.createOscillator();
+    this.drivePulse.type = 'triangle';
+    this.drivePulse.frequency.setValueAtTime(9, this.context.currentTime);
+
+    this.drivePulseGain = this.context.createGain();
+    this.drivePulseGain.gain.setValueAtTime(0.00045, this.context.currentTime);
+
+    this.driveTone = this.context.createOscillator();
+    this.driveTone.type = 'square';
+    this.driveTone.frequency.setValueAtTime(42, this.context.currentTime);
+
+    this.driveToneGain = this.context.createGain();
+    this.driveToneGain.gain.setValueAtTime(0.0001, this.context.currentTime);
+
+    this.driveSource.connect(this.driveBandpass);
+    this.driveBandpass.connect(this.driveLowpass);
+    this.driveLowpass.connect(this.driveGain);
+    this.driveGain.connect(this.context.destination);
+
+    this.driveTone.connect(this.driveToneGain);
+    this.driveToneGain.connect(this.driveGain);
+
+    this.drivePulse.connect(this.drivePulseGain);
+    this.drivePulseGain.connect(this.driveGain.gain);
+
+    this.driveSource.start();
+    this.driveTone.start();
+    this.drivePulse.start();
+  }
+
+  setDrive(active, intensity = 1) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+      return;
+    }
+
+    this.ensureDriveLoop();
+    if (this.muted) {
+      active = false;
+    }
+    const amount = Math.max(0, Math.min(1, intensity));
+    const now = this.context.currentTime;
+    const targetNoise = active ? 0.001 + amount * 0.0024 : 0.0001;
+    const targetTone = active ? 0.0003 + amount * 0.0009 : 0.0001;
+    const targetPulse = active ? 0.0005 + amount * 0.00065 : 0.0002;
+    const pulseFreq = active ? 8 + amount * 9 : 5;
+    const toneFreq = active ? 36 + amount * 26 : 30;
+    const bandFreq = active ? 150 + amount * 230 : 130;
+    const lowFreq = active ? 640 + amount * 940 : 560;
+    const ramp = active ? 0.07 : 0.14;
+
+    this.driveBandpass.frequency.cancelScheduledValues(now);
+    this.driveBandpass.frequency.linearRampToValueAtTime(bandFreq, now + ramp);
+    this.driveLowpass.frequency.cancelScheduledValues(now);
+    this.driveLowpass.frequency.linearRampToValueAtTime(lowFreq, now + ramp);
+    this.driveGain.gain.cancelScheduledValues(now);
+    this.driveGain.gain.linearRampToValueAtTime(targetNoise, now + ramp);
+    this.driveToneGain.gain.cancelScheduledValues(now);
+    this.driveToneGain.gain.linearRampToValueAtTime(targetTone, now + ramp);
+    this.drivePulseGain.gain.cancelScheduledValues(now);
+    this.drivePulseGain.gain.linearRampToValueAtTime(targetPulse, now + ramp);
+    this.drivePulse.frequency.cancelScheduledValues(now);
+    this.drivePulse.frequency.linearRampToValueAtTime(pulseFreq, now + ramp);
+    this.driveTone.frequency.cancelScheduledValues(now);
+    this.driveTone.frequency.linearRampToValueAtTime(toneFreq, now + ramp);
+  }
+
   setWind(amount) {
     this.windAmount = amount;
-    if (!this.context || !this.unlocked || this.context.state !== 'running') {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) {
       return;
     }
 
@@ -216,18 +342,18 @@ export class AudioManager {
       to: isMortar ? 90 : isSplit ? 130 : isBouncer ? 120 : 110,
       duration: isMortar ? 0.14 : 0.1,
       type: isMortar ? 'sawtooth' : 'square',
-      gain: isMortar ? 0.042 : 0.034
+      gain: isMortar ? 0.065 : 0.055
     });
     this.tone({
       frequency: isSplit ? 430 : 520,
       duration: 0.045,
       type: 'triangle',
-      gain: 0.016,
+      gain: 0.024,
       delay: 0.01
     });
     this.noiseBurst({
       duration: isMortar ? 0.11 : 0.08,
-      gain: isMortar ? 0.022 : 0.016,
+      gain: isMortar ? 0.035 : 0.028,
       highpass: isMortar ? 220 : 380,
       lowpass: isMortar ? 1800 : 2600,
       delay: 0.004
@@ -243,25 +369,25 @@ export class AudioManager {
       to: 42,
       duration: 0.26 * heavy,
       type: 'sawtooth',
-      gain: 0.05 * heavy
+      gain: 0.08 * heavy
     });
     this.sweep({
       from: 96,
       to: 30,
       duration: 0.34 * heavy,
       type: 'triangle',
-      gain: 0.032 * heavy,
+      gain: 0.055 * heavy,
       delay: 0.018
     });
     this.noiseBurst({
       duration: 0.22 * heavy,
-      gain: 0.03 * heavy,
+      gain: 0.05 * heavy,
       highpass: 80,
       lowpass: 1400 + radius * 10
     });
     this.noiseBurst({
       duration: 0.12 * heavy,
-      gain: 0.018 * heavy,
+      gain: 0.032 * heavy,
       highpass: 260,
       lowpass: 2400,
       delay: 0.03
@@ -273,13 +399,13 @@ export class AudioManager {
       frequency: 420 + Math.min(180, damage * 2),
       duration: 0.07,
       type: 'square',
-      gain: 0.012
+      gain: 0.022
     });
   }
 
   playBounce() {
-    this.tone({ frequency: 340, duration: 0.05, type: 'triangle', gain: 0.018 });
-    this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.012, delay: 0.04 });
+    this.tone({ frequency: 340, duration: 0.05, type: 'triangle', gain: 0.03 });
+    this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.022, delay: 0.04 });
   }
 
   playTurn() {
@@ -287,14 +413,28 @@ export class AudioManager {
       frequency: 420,
       duration: 0.05,
       type: 'triangle',
-      gain: 0.015
+      gain: 0.025
     });
     this.tone({
       frequency: 580,
       duration: 0.08,
       type: 'triangle',
-      gain: 0.015,
+      gain: 0.025,
       delay: 0.055
     });
+  }
+
+  playGameOver({ winner = true } = {}) {
+    if (winner) {
+      this.tone({ frequency: 392, duration: 0.14, type: 'triangle', gain: 0.02 });
+      this.tone({ frequency: 523, duration: 0.16, type: 'triangle', gain: 0.02, delay: 0.09 });
+      this.tone({ frequency: 659, duration: 0.2, type: 'triangle', gain: 0.018, delay: 0.19 });
+      this.sweep({ from: 220, to: 320, duration: 0.24, type: 'sine', gain: 0.014, delay: 0.02 });
+    } else {
+      this.tone({ frequency: 330, duration: 0.12, type: 'triangle', gain: 0.016 });
+      this.tone({ frequency: 277, duration: 0.18, type: 'triangle', gain: 0.016, delay: 0.1 });
+      this.sweep({ from: 210, to: 120, duration: 0.28, type: 'sine', gain: 0.012, delay: 0.03 });
+    }
+    this.noiseBurst({ duration: 0.11, gain: 0.008, highpass: 260, lowpass: 1700, delay: 0.04 });
   }
 }

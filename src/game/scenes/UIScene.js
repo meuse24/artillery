@@ -20,6 +20,9 @@ export class UIScene extends Phaser.Scene {
     this.helpScrollY = 0;
     this.helpMaxScroll = 0;
     this.helpBodyBaseY = 0;
+    this.gameoverScrollY = 0;
+    this.gameoverMaxScroll = 0;
+    this.gameoverBodyBaseY = 0;
 
     // ── HUD layer ──────────────────────────────────────────────────────────────
     this.panel = this.add.graphics().setDepth(100);
@@ -186,6 +189,7 @@ export class UIScene extends Phaser.Scene {
       .setStrokeStyle(2, 0xffffff, 0.14)
       .setDepth(121)
       .setVisible(false);
+    this.turnDialogCard = this.add.graphics().setDepth(121.4).setVisible(false);
 
     // Scrollable help content (depth 122) — clip rects cover overflow at 123
     this.overlayBody = this.add
@@ -212,10 +216,13 @@ export class UIScene extends Phaser.Scene {
     // Real clipping mask for help text area (prevents overflow on all sides).
     this.helpMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
     this.helpTextMask = this.helpMaskGraphics.createGeometryMask();
+    this.gameoverMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    this.gameoverTextMask = this.gameoverMaskGraphics.createGeometryMask();
     // Legacy cover graphics (kept for compatibility, currently unused for clipping)
     this.helpClip = this.add.graphics().setDepth(121.5);
     // Scrollbar drawn above clip (depth 125)
     this.helpScrollbar = this.add.graphics().setDepth(125).setVisible(false);
+    this.gameoverScrollbar = this.add.graphics().setDepth(125).setVisible(false);
 
     // Title and prompt always render above everything overlay-related
     this.overlayTitle = this.add
@@ -384,6 +391,7 @@ export class UIScene extends Phaser.Scene {
     // ── Animation groups ───────────────────────────────────────────────────────
     this.overlayContent = [
       this.overlayPanel,
+      this.turnDialogCard,
       this.overlayTitle,
       this.overlayBody,
       this.overlayScoreboard,
@@ -414,7 +422,10 @@ export class UIScene extends Phaser.Scene {
     // Mode selector buttons
     [this.startModeCpuButton, this.startModeCpuText].forEach((item) => {
       item.setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.setStartMode('cpu'))
+        .on('pointerdown', (_pointer, _lx, _ly, event) => {
+          event?.stopPropagation();
+          this.setStartMode('cpu');
+        })
         .on('pointerover', () => this.startModeCpuButton.setStrokeStyle(2, 0x7fe7dc, 0.6))
         .on('pointerout', () => {
           const active = this.gameScene.currentMode === 'cpu';
@@ -423,14 +434,16 @@ export class UIScene extends Phaser.Scene {
     });
     [this.startModeLocalButton, this.startModeLocalText].forEach((item) => {
       item.setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.setStartMode('local'))
+        .on('pointerdown', (_pointer, _lx, _ly, event) => {
+          event?.stopPropagation();
+          this.setStartMode('local');
+        })
         .on('pointerover', () => this.startModeLocalButton.setStrokeStyle(2, 0xf2b84b, 0.6))
         .on('pointerout', () => {
           const active = this.gameScene.currentMode === 'local';
           this.startModeLocalButton.setStrokeStyle(2, 0xf2b84b, active ? 0.46 : 0.16);
         });
     });
-
     const overlayActionHoverIn = () => {
       const type = this.gameScene.overlayState?.type;
       if (type === 'start') {
@@ -454,7 +467,10 @@ export class UIScene extends Phaser.Scene {
     // Main action button (click to advance any overlay)
     [this.startActionBacking, this.overlayPrompt].forEach((item) => {
       item.setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.handleOverlayClick())
+        .on('pointerdown', (_pointer, _lx, _ly, event) => {
+          event?.stopPropagation();
+          this.handleOverlayClick();
+        })
         .on('pointerover', overlayActionHoverIn)
         .on('pointerout', overlayActionHoverOut);
     });
@@ -462,12 +478,16 @@ export class UIScene extends Phaser.Scene {
     // Clicking the overlay surface also advances / closes according to state.
     [this.overlayShade, this.overlayPanel].forEach((item) => {
       item.setInteractive({ useHandCursor: true })
-        .on('pointerdown', () => this.handleOverlayClick());
+        .on('pointerdown', (_pointer, _lx, _ly, event) => {
+          event?.stopPropagation();
+          this.handleOverlayClick();
+        });
     });
 
     // How to Play link
     this.startHowToPlayText.setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
+      .on('pointerdown', (_pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
         const t = this.gameScene.overlayState?.type;
         if (t === 'start' || t === 'gameover') this.gameScene.showHelpOverlay();
       })
@@ -476,7 +496,8 @@ export class UIScene extends Phaser.Scene {
 
     // Switch Mode link
     this.startSwitchModeText.setInteractive({ useHandCursor: true })
-      .on('pointerdown', () => {
+      .on('pointerdown', (_pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
         const t = this.gameScene.overlayState?.type;
         if (t === 'start') {
           this.gameScene.toggleMode();
@@ -498,6 +519,8 @@ export class UIScene extends Phaser.Scene {
     this.input.on('wheel', (_ptr, _objs, _dx, deltaY) => {
       if (this.gameScene.overlayState?.type === 'help') {
         this.scrollHelp(deltaY * 0.55);
+      } else if (this.gameScene.overlayState?.type === 'gameover') {
+        this.scrollRoundOver(deltaY * 0.55);
       }
     });
 
@@ -539,6 +562,7 @@ export class UIScene extends Phaser.Scene {
   handleOverlayClick() {
     const state = this.gameScene.overlayState;
     if (!state) return;
+    this.gameScene.blockPointerInput?.(160);
     if (state.type === 'start') {
       this.startFromOverlay();
     } else if (state.type === 'turn') {
@@ -636,6 +660,185 @@ export class UIScene extends Phaser.Scene {
     this.overlayScoreboard.y = this.helpBodyBaseY - this.helpScrollY;
     this.drawHelpClip();
     this.drawHelpScrollbar();
+  }
+
+  getTurnDialogLayout() {
+    const panelLeft = this.overlayPanel.x - this.overlayPanel.width * 0.5;
+    const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+    const sidePad = this.compactLayout ? 34 : 40;
+    const headerH = this.compactLayout ? 88 : 96;
+    const footerH = this.compactLayout ? 56 : 60;
+    const textX = panelLeft + sidePad;
+    const textWidth = this.overlayPanel.width - sidePad * 2;
+    const titleY = panelTop + Math.round(headerH * 0.5);
+    const bodyY = panelTop + headerH + (this.compactLayout ? 18 : 22);
+    const promptY = panelTop + this.overlayPanel.height - Math.round(footerH * 0.55);
+
+    return {
+      textX,
+      textWidth,
+      bodyY,
+      titleY,
+      promptY,
+      headerH,
+      footerH
+    };
+  }
+
+  layoutTurnDialog() {
+    this.turnLayout = this.getTurnDialogLayout();
+    const layout = this.turnLayout;
+    const titleBottom = layout.titleY + this.overlayTitle.displayHeight * 0.5;
+    const bodyTop = Math.max(layout.bodyY, Math.round(titleBottom + (this.compactLayout ? 16 : 20)));
+    this.overlayTitle.y = layout.titleY;
+    this.overlayTitle.setOrigin(0.5);
+    this.overlayTitle.setAlign('center');
+    this.overlayBody.setPosition(layout.textX, bodyTop);
+    this.overlayBody.setAlign('left');
+    this.overlayBody.setWordWrapWidth(layout.textWidth, true);
+    this.overlayPrompt.setPosition(this.overlayPanel.x, layout.promptY);
+    this.overlayPrompt.setWordWrapWidth(layout.textWidth, true);
+    this.drawTurnDialogCard();
+  }
+
+  getRoundOverDialogLayout() {
+    const panelLeft = this.overlayPanel.x - this.overlayPanel.width * 0.5;
+    const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+    const sidePad = this.compactLayout ? 34 : 40;
+    const headerH = this.compactLayout ? 88 : 96;
+    const footerH = this.compactLayout ? 58 : 62;
+    const textX = panelLeft + sidePad;
+    const textWidth = this.overlayPanel.width - sidePad * 2;
+    const titleY = panelTop + Math.round(headerH * 0.5);
+    const bodyY = panelTop + headerH + (this.compactLayout ? 16 : 18);
+    const promptY = panelTop + this.overlayPanel.height - Math.round(footerH * 0.55);
+
+    return {
+      textX,
+      textWidth,
+      bodyY,
+      titleY,
+      promptY,
+      headerH,
+      footerH
+    };
+  }
+
+  layoutRoundOverDialog() {
+    this.turnLayout = this.getRoundOverDialogLayout();
+    const layout = this.turnLayout;
+    this.overlayTitle.y = layout.titleY;
+    this.overlayTitle.setOrigin(0.5);
+    this.overlayTitle.setAlign('center');
+    this.overlayBody.setPosition(layout.textX, layout.bodyY);
+    this.overlayBody.setAlign('left');
+    this.overlayBody.setWordWrapWidth(layout.textWidth, true);
+    this.overlayPrompt.setPosition(this.overlayPanel.x, layout.promptY);
+    this.overlayPrompt.setWordWrapWidth(layout.textWidth, true);
+    this.drawTurnDialogCard();
+  }
+
+  getRoundOverViewport() {
+    const layout = this.turnLayout ?? this.getRoundOverDialogLayout();
+    const top = this.overlayBody.y;
+    const bottom = layout.promptY - (this.compactLayout ? 22 : 26);
+    return {
+      top,
+      height: Math.max(80, bottom - top)
+    };
+  }
+
+  layoutRoundOverScroll(resetScroll = false) {
+    if (resetScroll) {
+      this.gameoverScrollY = 0;
+    }
+    const viewport = this.getRoundOverViewport();
+    this.gameoverMaxScroll = Math.max(0, this.overlayBody.height - viewport.height);
+    this.gameoverScrollY = Phaser.Math.Clamp(this.gameoverScrollY, 0, this.gameoverMaxScroll);
+    this.gameoverBodyBaseY = viewport.top;
+    this.overlayBody.y = this.gameoverBodyBaseY - this.gameoverScrollY;
+    this.drawRoundOverClip();
+    this.drawRoundOverScrollbar();
+  }
+
+  scrollRoundOver(deltaY) {
+    const viewport = this.getRoundOverViewport();
+    this.gameoverMaxScroll = Math.max(0, this.overlayBody.height - viewport.height);
+    this.gameoverScrollY = Phaser.Math.Clamp(this.gameoverScrollY + deltaY, 0, this.gameoverMaxScroll);
+    this.overlayBody.y = this.gameoverBodyBaseY - this.gameoverScrollY;
+    this.drawRoundOverScrollbar();
+  }
+
+  drawRoundOverScrollbar() {
+    this.gameoverScrollbar.clear();
+    if (this.gameoverMaxScroll <= 0) {
+      this.gameoverScrollbar.setVisible(false);
+      return;
+    }
+    this.gameoverScrollbar.setVisible(true);
+    const viewport = this.getRoundOverViewport();
+    const x = this.overlayPanel.x + this.overlayPanel.width * 0.5 - 16;
+    const trackY = viewport.top;
+    const trackH = viewport.height;
+    const thumbH = Math.max(28, trackH * (viewport.height / (viewport.height + this.gameoverMaxScroll)));
+    const thumbY = trackY + (trackH - thumbH) * (this.gameoverScrollY / this.gameoverMaxScroll);
+    this.gameoverScrollbar.fillStyle(0x1a2c38, 0.9);
+    this.gameoverScrollbar.fillRoundedRect(x, trackY, 6, trackH, 3);
+    this.gameoverScrollbar.fillStyle(0xf2b84b, 0.62);
+    this.gameoverScrollbar.fillRoundedRect(x, thumbY, 6, thumbH, 3);
+  }
+
+  drawRoundOverClip() {
+    this.gameoverMaskGraphics.clear();
+    if (this.gameScene?.overlayState?.type !== 'gameover') {
+      this.overlayBody.clearMask();
+      return;
+    }
+    const viewport = this.getRoundOverViewport();
+    const clipWidth =
+      this.overlayBody.style.wordWrapWidth ??
+      this.turnLayout?.textWidth ??
+      (this.overlayPanel.width - 80);
+    this.gameoverMaskGraphics.fillStyle(0xffffff, 1);
+    this.gameoverMaskGraphics.fillRect(
+      this.overlayBody.x,
+      viewport.top,
+      clipWidth,
+      viewport.height
+    );
+    this.overlayBody.setMask(this.gameoverTextMask);
+  }
+
+  drawTurnDialogCard() {
+    this.turnDialogCard.clear();
+    const type = this.gameScene?.overlayState?.type;
+    if (type !== 'turn' && type !== 'gameover') {
+      return;
+    }
+
+    const layout = this.turnLayout ?? (type === 'gameover' ? this.getRoundOverDialogLayout() : this.getTurnDialogLayout());
+    const x = this.overlayPanel.x - this.overlayPanel.width * 0.5;
+    const y = this.overlayPanel.y - this.overlayPanel.height * 0.5;
+    const w = this.overlayPanel.width;
+    const h = this.overlayPanel.height;
+    const headerH = layout.headerH;
+    const footerH = layout.footerH;
+
+    this.turnDialogCard.fillStyle(0x061522, 0.98);
+    this.turnDialogCard.fillRoundedRect(x, y, w, h, 14);
+    this.turnDialogCard.lineStyle(2, 0xffffff, 0.14);
+    this.turnDialogCard.strokeRoundedRect(x, y, w, h, 14);
+
+    this.turnDialogCard.fillStyle(0x0d2635, 0.98);
+    this.turnDialogCard.fillRoundedRect(x + 1, y + 1, w - 2, headerH, 12);
+    this.turnDialogCard.lineStyle(1, 0xffffff, 0.16);
+    this.turnDialogCard.beginPath();
+    this.turnDialogCard.moveTo(x + 18, y + headerH);
+    this.turnDialogCard.lineTo(x + w - 18, y + headerH);
+    this.turnDialogCard.strokePath();
+
+    this.turnDialogCard.fillStyle(0x0a1b28, 0.94);
+    this.turnDialogCard.fillRoundedRect(x + 1, y + h - footerH - 1, w - 2, footerH, 10);
   }
 
   scrollHelp(deltaY) {
@@ -760,8 +963,9 @@ export class UIScene extends Phaser.Scene {
       centerW,
       textTopY: frameY + 14,
       windY: frameY + 42,
-      timerBarY: frameY + 78,
-      timerTextY: frameY + 90,
+      moveTimerBarY: frameY + (this.compactLayout ? 68 : 74),
+      aimTimerBarY: frameY + (this.compactLayout ? 80 : 86),
+      timerTextY: frameY + (this.compactLayout ? 90 : 98),
       hpBarY: frameY + frameH - 20,
       objectiveY,
       objectiveW: this.compactLayout ? 760 : 860
@@ -884,24 +1088,30 @@ export class UIScene extends Phaser.Scene {
     if (activeOverlayType === 'help') {
       this.overlayPanel.width = this.compactLayout ? 1020 : 1120;
       this.overlayPanel.height = this.compactLayout ? 600 : 560;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
       this.layoutHelpDialog(false);
+    } else if (activeOverlayType === 'start') {
+      this.overlayPanel.width = this.compactLayout ? 980 : 940;
+      this.overlayPanel.height = this.compactLayout ? 620 : 590;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
     } else if (activeOverlayType === 'turn') {
       this.overlayPanel.width = this.compactLayout ? 660 : 620;
       this.overlayPanel.height = this.compactLayout ? 330 : 300;
-      const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
-      const sidePad = this.compactLayout ? 34 : 40;
-      const textX = this.overlayPanel.x - this.overlayPanel.width * 0.5 + sidePad;
-      const textW = this.overlayPanel.width - sidePad * 2;
-      this.overlayTitle.y = panelTop + (this.compactLayout ? 58 : 62);
-      this.overlayBody.setPosition(textX, panelTop + (this.compactLayout ? 114 : 120));
-      this.overlayBody.setWordWrapWidth(textW, true);
-      this.overlayPrompt.setPosition(this.overlayPanel.x, panelTop + this.overlayPanel.height - (this.compactLayout ? 32 : 34));
-      this.overlayPrompt.setWordWrapWidth(textW, true);
+      this.overlayPanel.y = GAME_HEIGHT * 0.5;
+      this.layoutTurnDialog();
+    } else if (activeOverlayType === 'gameover') {
+      this.overlayPanel.width = this.compactLayout ? 900 : 860;
+      this.overlayPanel.height = this.compactLayout ? 640 : 620;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5;
+      this.layoutRoundOverDialog();
+      this.layoutRoundOverScroll(false);
     } else {
       this.overlayPanel.width = this.compactLayout ? 940 : 860;
       this.overlayPanel.height = this.compactLayout ? 560 : 520;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
       this.overlayBody.setWordWrapWidth(this.compactLayout ? 470 : 420, true);
       this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
+      this.turnLayout = null;
     }
     this.startTagline.setFontSize(this.compactLayout ? '21px' : '24px');
     this.startModeCpuText.setFontSize(this.compactLayout ? '14px' : '15px');
@@ -915,22 +1125,107 @@ export class UIScene extends Phaser.Scene {
     this.orientationBody.setFontSize(this.compactLayout ? '18px' : '20px');
     this.drawFrame();
     this.drawHpBars(this.displayHp[0], this.displayHp[1]);
-    if (this.gameScene?.overlayState?.type === 'help') {
+    if (this.gameScene?.overlayState?.type === 'start') {
+      this.updateOverlay(this.gameScene.overlayState);
+    } else if (this.gameScene?.overlayState?.type === 'help') {
       this.layoutHelpDialog(false);
+    } else if (this.gameScene?.overlayState?.type === 'turn') {
+      this.layoutTurnDialog();
+    } else if (this.gameScene?.overlayState?.type === 'gameover') {
+      this.layoutRoundOverDialog();
+      this.layoutRoundOverScroll(false);
     }
     this.updateOrientationGuard();
   }
 
   // ── Start screen decorative graphics ─────────────────────────────────────────
-  drawStartDecor() {
-    this.startDeco.clear();
-
-    const panelW = this.overlayPanel.width;   // 900 (non-compact)
-    const panelH = this.overlayPanel.height;  // 520
-    const panelX = this.overlayPanel.x;       // 640
-    const panelY = this.overlayPanel.y;       // 376
+  getStartOverlayLayout() {
+    const panelW = this.overlayPanel.width;
+    const panelH = this.overlayPanel.height;
+    const panelX = this.overlayPanel.x;
+    const panelY = this.overlayPanel.y;
     const left = panelX - panelW * 0.5;
     const top = panelY - panelH * 0.5;
+
+    const contentInset = this.compactLayout ? 26 : 24;
+    const contentGap = this.compactLayout ? 14 : 16;
+    const contentX = left + contentInset;
+    const contentW = panelW - contentInset * 2;
+    const missionW = Math.round(contentW * (this.compactLayout ? 0.59 : 0.6));
+    const scoreW = contentW - missionW - contentGap;
+    const scoreX = contentX + missionW + contentGap;
+
+    const kickerH = Math.max(16, Math.round(this.startKicker.height || 16));
+    const titleH = Math.max(this.compactLayout ? 66 : 74, Math.round(this.overlayTitle.displayHeight || 0));
+    const taglineH = Math.max(22, Math.round(this.startTagline.height || 22));
+    const modeH = 46;
+    const contentH = this.compactLayout ? 152 : 148;
+    const actionH = 50;
+    const linksH = Math.max(16, Math.round(this.startHowToPlayText.height || 16));
+    const heights = [kickerH, titleH, taglineH, modeH, contentH, actionH, linksH];
+    const totalHeights = heights.reduce((sum, v) => sum + v, 0);
+    const gapCount = heights.length + 1;
+    const rawGap = Math.floor((panelH - totalHeights) / gapCount);
+    const gap = Phaser.Math.Clamp(rawGap, this.compactLayout ? 6 : 8, this.compactLayout ? 16 : 20);
+    const used = totalHeights + gap * gapCount;
+    const extra = panelH - used;
+
+    let cursor = top + gap + Math.floor(extra * 0.5);
+    const kickerY = cursor + kickerH * 0.5;
+    cursor += kickerH + gap;
+    const titleY = cursor + titleH * 0.5;
+    cursor += titleH + gap;
+    const taglineY = cursor + taglineH * 0.5;
+    cursor += taglineH + gap;
+    const modeY = cursor + modeH * 0.5;
+    cursor += modeH + gap;
+    const contentY = cursor;
+    cursor += contentH + gap;
+    const actionY = cursor + actionH * 0.5;
+    cursor += actionH + gap;
+    const linksY = cursor + linksH * 0.5;
+
+    return {
+      panelX,
+      panelY,
+      panelW,
+      panelH,
+      left,
+      top,
+      contentX,
+      contentW,
+      missionW,
+      scoreX,
+      scoreW,
+      contentY,
+      contentH,
+      kickerY,
+      titleY,
+      taglineY,
+      modeY,
+      actionY,
+      linksY
+    };
+  }
+
+  drawStartDecor(startLayout = this.getStartOverlayLayout()) {
+    this.startDeco.clear();
+    const panelX = startLayout.panelX;
+    const panelY = startLayout.panelY;
+    const left = startLayout.left;
+    const top = startLayout.top;
+    const missionX = startLayout.contentX;
+    const missionY = startLayout.contentY;
+    const missionW = startLayout.missionW;
+    const missionH = startLayout.contentH;
+    const scoreX = startLayout.scoreX;
+    const scoreY = startLayout.contentY;
+    const scoreW = startLayout.scoreW;
+    const scoreH = startLayout.contentH;
+    const actionX = startLayout.contentX;
+    const actionY = Math.round(startLayout.actionY - 25);
+    const actionW = startLayout.contentW;
+    const actionH = 50;
 
     // Ambient fill circles
     this.startDeco.fillStyle(0xf2b84b, 0.07);
@@ -955,29 +1250,29 @@ export class UIScene extends Phaser.Scene {
     this.startDeco.strokePath();
 
     // ── Content boxes ──────────────────────────────────────────────────────────
-    // Mission box: left 60% of content area (offset -426, width 514)
+    // Mission box: left 60% of content area
     this.startDeco.fillStyle(0x08141d, 0.94);
-    this.startDeco.fillRoundedRect(panelX - 426, panelY + 24, 514, 148, 16);
-    // Score box: right 40% (offset +104, width 322)
+    this.startDeco.fillRoundedRect(missionX, missionY, missionW, missionH, 16);
+    // Score box: right side
     this.startDeco.fillStyle(0x0d1d27, 0.96);
-    this.startDeco.fillRoundedRect(panelX + 104, panelY + 24, 322, 148, 16);
+    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, scoreH, 16);
     // Action bar: full content width
     this.startDeco.fillStyle(0x071018, 0.98);
-    this.startDeco.fillRoundedRect(panelX - 426, panelY + 188, 852, 50, 16);
+    this.startDeco.fillRoundedRect(actionX, actionY, actionW, actionH, 16);
 
     // Header strips inside boxes
     this.startDeco.fillStyle(0x103040, 0.65);
-    this.startDeco.fillRoundedRect(panelX - 426, panelY + 24, 514, 30, 16);
+    this.startDeco.fillRoundedRect(missionX, missionY, missionW, 30, 16);
     this.startDeco.fillStyle(0x3a2a0f, 0.62);
-    this.startDeco.fillRoundedRect(panelX + 104, panelY + 24, 322, 30, 16);
+    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, 30, 16);
 
     // Box outlines
     this.startDeco.lineStyle(2, 0x7fe7dc, 0.18);
-    this.startDeco.strokeRoundedRect(panelX - 426, panelY + 24, 514, 148, 16);
+    this.startDeco.strokeRoundedRect(missionX, missionY, missionW, missionH, 16);
     this.startDeco.lineStyle(2, 0xf2b84b, 0.18);
-    this.startDeco.strokeRoundedRect(panelX + 104, panelY + 24, 322, 148, 16);
+    this.startDeco.strokeRoundedRect(scoreX, scoreY, scoreW, scoreH, 16);
     this.startDeco.lineStyle(2, 0xf2b84b, 0.36);
-    this.startDeco.strokeRoundedRect(panelX - 426, panelY + 188, 852, 50, 16);
+    this.startDeco.strokeRoundedRect(actionX, actionY, actionW, actionH, 16);
   }
 
   // ── HUD update ────────────────────────────────────────────────────────────────
@@ -1093,6 +1388,7 @@ export class UIScene extends Phaser.Scene {
     const visible = Boolean(overlay);
     const isStart = Boolean(overlay && overlay.type === 'start');
     const isTurn = Boolean(overlay && overlay.type === 'turn');
+    const isGameOver = Boolean(overlay && overlay.type === 'gameover');
     const isHelp = Boolean(overlay && overlay.type === 'help');
     this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
     this.tweens.killTweensOf(this.startOverlayContent);
@@ -1109,12 +1405,25 @@ export class UIScene extends Phaser.Scene {
       this.overlayScoreboard.clearMask();
       this.helpClip.clear();
     }
+    if (!visible || (overlay && overlay.type !== 'gameover')) {
+      this.gameoverScrollY = 0;
+      this.gameoverMaxScroll = 0;
+      this.gameoverBodyBaseY = 0;
+      this.gameoverScrollbar.setVisible(false);
+      this.gameoverMaskGraphics.clear();
+      this.overlayBody.clearMask();
+    }
+    if (!visible || (overlay && overlay.type !== 'turn' && overlay.type !== 'gameover')) {
+      this.turnLayout = null;
+      this.turnDialogCard.clear();
+    }
 
     this.overlayShade.setVisible(visible);
     this.overlayPanel.setVisible(visible);
+    this.turnDialogCard.setVisible(visible && (isTurn || isGameOver));
     this.overlayTitle.setVisible(visible);
     this.overlayBody.setVisible(visible);
-    this.overlayScoreboard.setVisible(visible && !isStart && !isTurn);
+    this.overlayScoreboard.setVisible(visible && !isStart && !isTurn && !isGameOver);
     this.overlayPrompt.setVisible(visible);
     this.startDeco.setVisible(isStart);
     this.startKicker.setVisible(isStart);
@@ -1141,16 +1450,32 @@ export class UIScene extends Phaser.Scene {
     if (!visible) {
       this.overlayShade.setAlpha(0);
       this.overlayContent.forEach((item) => item.setAlpha(0));
+      this.turnDialogCard.clear();
+      this.gameoverScrollbar.clear();
       this.startDeco.setAlpha(0);
       this.startOverlayContent.forEach((item) => item.setAlpha(0));
       this.helpLayout = null;
+      this.turnLayout = null;
+
+      // Restore HUD visibility
+      this.panel.setVisible(true);
+      this.hpBars.setVisible(true);
+      this.leftText.setVisible(true);
+      this.rightText.setVisible(true);
+      this.centerText.setVisible(true);
+      this.windText.setVisible(true);
+      this.objectiveText.setVisible(true);
+      this.controlsText.setVisible(true);
       return;
     }
 
     // ── Populate text ──────────────────────────────────────────────────────────
     this.overlayTitle.setText(overlay.title ?? '');
-    this.overlayBody.setText(overlay.body ?? '');
-    this.overlayScoreboard.setText(overlay.scoreboard ?? '');
+    const gameOverBody = isGameOver
+      ? [overlay.body ?? '', overlay.scoreboard ?? ''].filter(Boolean).join('\n\n')
+      : overlay.body ?? '';
+    this.overlayBody.setText(gameOverBody);
+    this.overlayScoreboard.setText(isGameOver ? '' : (overlay.scoreboard ?? ''));
     this.overlayPrompt.setText(overlay.prompt ?? '');
     this.startKicker.setText(overlay.kicker ?? '');
     this.startTagline.setText(overlay.tagline ?? '');
@@ -1173,35 +1498,68 @@ export class UIScene extends Phaser.Scene {
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
     this.overlayTitle.setFontSize(
-      overlay.type === 'start' ? '78px' : overlay.type === 'turn' ? '36px' : '40px'
+      overlay.type === 'start' ? '78px' : (overlay.type === 'turn' || overlay.type === 'gameover') ? '36px' : '40px'
     );
     this.overlayTitle.setColor(overlay.type === 'start' ? '#f2b84b' : '#f4f1df');
     this.overlayPrompt.setColor(
       overlay.type === 'start'
         ? '#f4f1df'
-        : overlay.type === 'turn'
+        : overlay.type === 'turn' || overlay.type === 'gameover'
           ? '#f2b84b'
           : '#f2b84b'
     );
-    this.overlayPrompt.setFontSize(overlay.type === 'start' ? '22px' : overlay.type === 'turn' ? '17px' : '20px');
+    this.overlayPrompt.setFontSize(
+      overlay.type === 'start' ? '22px' : (overlay.type === 'turn' || overlay.type === 'gameover') ? '17px' : '20px'
+    );
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
+    this.overlayBody.setAlign(isTurn ? 'center' : 'left');
     if (overlay.type === 'help') {
       this.overlayBody.setColor('#f7f3e6');
       this.overlayScoreboard.setColor('#94f3ec');
     }
-    this.overlayBody.setFontSize(overlay.type === 'start' ? '20px' : overlay.type === 'turn' ? '18px' : '17px');
-    this.overlayScoreboard.setFontSize('17px');
-    this.overlayShade.setFillStyle(0x04070a, 0.72);
-    this.overlayPanel.setFillStyle(
-      overlay.type === 'start' ? 0x071018 : 0x09131b,
-      overlay.type === 'start' ? 0.98 : 0.96
-    );
-    this.overlayPanel.setStrokeStyle(2, 0xffffff, overlay.type === 'start' ? 0.1 : 0.14);
+    this.overlayShade.setFillStyle(0x04070a, isStart ? 1 : 0.72);
+
+    if (isStart) {
+      // Hide game HUD elements while on the start screen
+      this.panel.setVisible(false);
+      this.hpBars.setVisible(false);
+      this.leftText.setVisible(false);
+      this.rightText.setVisible(false);
+      this.centerText.setVisible(false);
+      this.windText.setVisible(false);
+      this.timerBar.setVisible(false);
+      this.timerText.setVisible(false);
+      this.objectiveText.setVisible(false);
+      this.controlsText.setVisible(false);
+    } else {
+      // Restore HUD visibility for other overlays (like help or turn)
+      this.panel.setVisible(true);
+      this.hpBars.setVisible(true);
+      this.leftText.setVisible(true);
+      this.rightText.setVisible(true);
+      this.centerText.setVisible(true);
+      this.windText.setVisible(true);
+      this.objectiveText.setVisible(true);
+      this.controlsText.setVisible(true);
+    }
+    if (isTurn || isGameOver) {
+      // Turn and gameover overlays use the same dedicated opaque card graphics layer.
+      this.overlayPanel.setFillStyle(0x09131b, 0);
+      this.overlayPanel.setStrokeStyle(0, 0xffffff, 0);
+    } else {
+      this.overlayPanel.setFillStyle(
+        overlay.type === 'start' ? 0x071018 : 0x09131b,
+        overlay.type === 'start' ? 0.98 : 0.96
+      );
+      this.overlayPanel.setStrokeStyle(2, 0xffffff, overlay.type === 'start' ? 0.1 : 0.14);
+      this.turnDialogCard.clear();
+    }
 
     // Reset all alphas for fade-in
     this.overlayShade.setAlpha(0);
     this.overlayPanel.setAlpha(0);
+    this.turnDialogCard.setAlpha(0);
     this.overlayTitle.setAlpha(0);
     this.overlayBody.setAlpha(0);
     this.overlayScoreboard.setAlpha(0);
@@ -1211,87 +1569,87 @@ export class UIScene extends Phaser.Scene {
 
     // ── Panel size and positions ───────────────────────────────────────────────
     this.overlayPanel.width = isStart
-      ? (this.compactLayout ? 960 : 900)
+      ? (this.compactLayout ? 980 : 940)
       : isTurn
         ? (this.compactLayout ? 660 : 620)
+        : isGameOver
+          ? (this.compactLayout ? 900 : 860)
         : isHelp
           ? (this.compactLayout ? 1020 : 1120)
           : this.compactLayout ? 940 : 860;
     this.overlayPanel.height = isStart
-      ? (this.compactLayout ? 548 : 520)
+      ? (this.compactLayout ? 620 : 590)
       : isTurn
         ? (this.compactLayout ? 330 : 300)
+        : isGameOver
+          ? (this.compactLayout ? 640 : 620)
         : isHelp
           ? (this.compactLayout ? 600 : 560)
           : this.compactLayout ? 560 : 520;
-    this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
+    this.overlayPanel.y = (isTurn || isGameOver) ? GAME_HEIGHT * 0.5 : GAME_HEIGHT * 0.5 + 16;
 
     if (isStart) {
+      const startLayout = this.getStartOverlayLayout();
+
       // Title / kicker
-      this.overlayTitle.y = GAME_HEIGHT * 0.5 - 164;
-      this.startKicker.y = GAME_HEIGHT * 0.5 - 226;
-      this.startTagline.y = GAME_HEIGHT * 0.5 - 94;
+      this.overlayTitle.y = startLayout.titleY;
+      this.startKicker.y = startLayout.kickerY;
+      this.startTagline.y = startLayout.taglineY;
 
       // Mode buttons
-      this.startModeBacking.y = GAME_HEIGHT * 0.5 - 52;
+      this.startModeBacking.y = startLayout.modeY;
       this.startModeCpuButton.x = GAME_WIDTH * 0.5 - 82;
-      this.startModeCpuButton.y = GAME_HEIGHT * 0.5 - 52;
+      this.startModeCpuButton.y = startLayout.modeY;
       this.startModeLocalButton.x = GAME_WIDTH * 0.5 + 82;
-      this.startModeLocalButton.y = GAME_HEIGHT * 0.5 - 52;
+      this.startModeLocalButton.y = startLayout.modeY;
       this.startModeCpuText.x = GAME_WIDTH * 0.5 - 82;
-      this.startModeCpuText.y = GAME_HEIGHT * 0.5 - 52;
+      this.startModeCpuText.y = startLayout.modeY;
       this.startModeLocalText.x = GAME_WIDTH * 0.5 + 82;
-      this.startModeLocalText.y = GAME_HEIGHT * 0.5 - 52;
+      this.startModeLocalText.y = startLayout.modeY;
 
-      // Mission box text (word wrap = 488 = 514 - 2*13 padding)
-      this.overlayBody.x = GAME_WIDTH * 0.5 - 412;
-      this.overlayBody.y = this.overlayPanel.y + 62;
-      this.overlayBody.setWordWrapWidth(this.compactLayout ? 500 : 488, true);
+      // Mission box text
+      this.overlayBody.x = startLayout.contentX + 14;
+      this.overlayBody.y = startLayout.contentY + 38;
+      this.overlayBody.setWordWrapWidth(startLayout.missionW - 26, true);
 
       // Score box labels
-      this.startBodyLabel.x = GAME_WIDTH * 0.5 - 414;
-      this.startBodyLabel.y = this.overlayPanel.y + 33;
-      this.startScoreLabel.x = GAME_WIDTH * 0.5 + 116;
-      this.startScoreLabel.y = this.overlayPanel.y + 33;
+      this.startBodyLabel.x = startLayout.contentX + 12;
+      this.startBodyLabel.y = startLayout.contentY + 9;
+      this.startScoreLabel.x = startLayout.scoreX + 12;
+      this.startScoreLabel.y = startLayout.contentY + 9;
 
-      // Score cards — center of score box (panelX+104+322/2 = panelX+265 = 905)
-      const scoreCenterX = GAME_WIDTH * 0.5 + 265;
+      // Score cards
+      const scoreCenterX = startLayout.scoreX + startLayout.scoreW * 0.5;
       this.startScoreAmberCard.x = scoreCenterX;
-      this.startScoreAmberCard.y = this.overlayPanel.y + 88;
+      this.startScoreAmberCard.y = startLayout.contentY + 64;
       this.startScoreCyanCard.x = scoreCenterX;
-      this.startScoreCyanCard.y = this.overlayPanel.y + 144;
+      this.startScoreCyanCard.y = startLayout.contentY + 120;
       this.startScoreAmber.x = scoreCenterX;
-      this.startScoreAmber.y = this.overlayPanel.y + 88;
+      this.startScoreAmber.y = startLayout.contentY + 64;
       this.startScoreCyan.x = scoreCenterX;
-      this.startScoreCyan.y = this.overlayPanel.y + 144;
+      this.startScoreCyan.y = startLayout.contentY + 120;
 
       // Action bar
+      this.startActionBacking.width = startLayout.contentW;
       this.startActionBacking.x = GAME_WIDTH * 0.5;
-      this.startActionBacking.y = this.overlayPanel.y + 213;
-      this.overlayPrompt.y = this.overlayPanel.y + 213;
+      this.startActionBacking.y = startLayout.actionY;
+      this.overlayPrompt.y = startLayout.actionY;
+      this.overlayPrompt.setWordWrapWidth(startLayout.contentW - 24, true);
 
       // "How to Play" and "Switch Mode" links below action bar
       this.startHowToPlayText.x = GAME_WIDTH * 0.5 - 100;
-      this.startHowToPlayText.y = this.overlayPanel.y + 245;
+      this.startHowToPlayText.y = startLayout.linksY;
       this.startSwitchModeText.x = GAME_WIDTH * 0.5 + 100;
-      this.startSwitchModeText.y = this.overlayPanel.y + 245;
+      this.startSwitchModeText.y = startLayout.linksY;
 
-      this.drawStartDecor();
+      this.drawStartDecor(startLayout);
     } else {
       // Non-start overlays (turn, gameover, help)
       const helpLayout = isHelp ? this.getHelpDialogLayout() : null;
       if (isTurn) {
-        const panelTop = this.overlayPanel.y - this.overlayPanel.height * 0.5;
-        const sidePad = this.compactLayout ? 34 : 40;
-        const textX = this.overlayPanel.x - this.overlayPanel.width * 0.5 + sidePad;
-        const textW = this.overlayPanel.width - sidePad * 2;
-        this.overlayTitle.y = panelTop + (this.compactLayout ? 58 : 62);
-        this.overlayBody.x = textX;
-        this.overlayBody.y = panelTop + (this.compactLayout ? 114 : 120);
-        this.overlayBody.setWordWrapWidth(textW, true);
-        this.overlayPrompt.y = panelTop + this.overlayPanel.height - (this.compactLayout ? 32 : 34);
-        this.overlayPrompt.setWordWrapWidth(textW, true);
-        this.overlayScoreboard.x = GAME_WIDTH * 0.5 + 110;
+        this.layoutTurnDialog();
+      } else if (isGameOver) {
+        this.layoutRoundOverDialog();
       } else {
         this.overlayTitle.y = GAME_HEIGHT * 0.5 - 188;
         this.overlayBody.x = isHelp ? helpLayout.leftX : GAME_WIDTH * 0.5 - 360;
@@ -1309,7 +1667,9 @@ export class UIScene extends Phaser.Scene {
 
       if (isHelp) {
         this.layoutHelpDialog(true);
-      } else {
+      } else if (isGameOver) {
+        this.layoutRoundOverScroll(true);
+      } else if (!isTurn && !isGameOver) {
         this.overlayBody.y = GAME_HEIGHT * 0.5 - 128;
         this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;
       }
@@ -1320,7 +1680,9 @@ export class UIScene extends Phaser.Scene {
     this.tweens.add(
       isStart
         ? { targets: this.overlayContent, alpha: 1, duration: 220, ease: 'Cubic.Out', stagger: 20 }
-        : { targets: this.overlayContent, alpha: 1, y: '-=16', duration: 220, ease: 'Cubic.Out', stagger: 20 }
+        : (isTurn || isGameOver)
+          ? { targets: this.overlayContent, alpha: 1, duration: 220, ease: 'Cubic.Out', stagger: 20 }
+          : { targets: this.overlayContent, alpha: 1, y: '-=16', duration: 220, ease: 'Cubic.Out', stagger: 20 }
     );
     if (isStart) {
       this.tweens.add({ targets: this.startDeco, alpha: 1, duration: 240, ease: 'Cubic.Out' });
@@ -1337,28 +1699,71 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
-  // ── Timer bar ─────────────────────────────────────────────────────────────────
-  updateTimer(remaining, total) {
+  // ── Timer bars ────────────────────────────────────────────────────────────────
+  updateTimer(timerState, legacyTotal) {
     this.hudLayout = this.hudLayout ?? this.computeHudLayout();
     const h = this.hudLayout;
     this.timerBar.clear();
-    if (remaining >= total) {
+
+    // Backward-compatible fallback for legacy payload shape.
+    if (typeof timerState === 'number') {
+      const remaining = timerState;
+      const total = legacyTotal ?? 1;
+      if (remaining >= total) {
+        this.timerText.setText('');
+        return;
+      }
+      const ratio = Phaser.Math.Clamp(remaining / Math.max(1, total), 0, 1);
+      const barWidth = this.compactLayout ? 96 : 114;
+      const barX = h.centerX - barWidth * 0.5;
+      const barY = h.moveTimerBarY;
+      const urgent = remaining <= 5;
+      const color = urgent ? 0xff4444 : remaining <= 10 ? 0xf2b84b : 0x7fe7dc;
+
+      this.timerBar.fillStyle(0x08121a, 0.72);
+      this.timerBar.fillRoundedRect(barX - 2, barY - 2, barWidth + 4, 10, 4);
+      this.timerBar.fillStyle(color, urgent ? (Math.floor(this.game.loop.frame / 8) % 2 === 0 ? 0.95 : 0.5) : 0.86);
+      this.timerBar.fillRoundedRect(barX, barY, Math.round(barWidth * ratio), 6, 3);
+      this.timerText.setText(`${Math.ceil(remaining)}s`);
+      this.timerText.setColor(urgent ? '#ff6666' : '#f4f1df');
+      this.timerText.setY(h.timerTextY);
+      return;
+    }
+
+    if (!timerState) {
       this.timerText.setText('');
       return;
     }
-    const ratio = remaining / total;
-    const barWidth = this.compactLayout ? 96 : 114;
-    const barX = h.centerX - barWidth * 0.5;
-    const barY = h.timerBarY;
-    const urgent = remaining <= 5;
-    const color = urgent ? 0xff4444 : remaining <= 10 ? 0xf2b84b : 0x7fe7dc;
 
-    this.timerBar.fillStyle(0x08121a, 0.72);
-    this.timerBar.fillRoundedRect(barX - 2, barY - 2, barWidth + 4, 10, 4);
-    this.timerBar.fillStyle(color, urgent ? (Math.floor(this.game.loop.frame / 8) % 2 === 0 ? 0.95 : 0.5) : 0.86);
-    this.timerBar.fillRoundedRect(barX, barY, Math.round(barWidth * ratio), 6, 3);
-    this.timerText.setText(`${Math.ceil(remaining)}s`);
-    this.timerText.setColor(urgent ? '#ff6666' : '#f4f1df');
+    const move = timerState.move ?? { remaining: 0, total: 1 };
+    const aim = timerState.aim ?? { remaining: 0, total: 1 };
+    const activePhase = timerState.phase === 'aim' ? 'aim' : 'move';
+    const barWidth = this.compactLayout ? 112 : 130;
+    const barX = h.centerX - barWidth * 0.5;
+    const frameParity = Math.floor(this.game.loop.frame / 8) % 2 === 0;
+
+    const drawPhaseBar = (remainingRaw, totalRaw, y, baseColor, isActive) => {
+      const total = Math.max(1, totalRaw ?? 1);
+      const remaining = Phaser.Math.Clamp(remainingRaw ?? 0, 0, total);
+      const ratio = Phaser.Math.Clamp(remaining / total, 0, 1);
+      const urgent = remaining <= Math.max(2, total * 0.2);
+      const fillAlpha = isActive && urgent
+        ? (frameParity ? 0.95 : 0.5)
+        : isActive
+          ? 0.92
+          : 0.56;
+
+      this.timerBar.fillStyle(0x08121a, isActive ? 0.74 : 0.56);
+      this.timerBar.fillRoundedRect(barX - 2, y - 2, barWidth + 4, 10, 4);
+      this.timerBar.fillStyle(baseColor, fillAlpha);
+      this.timerBar.fillRoundedRect(barX, y, Math.round(barWidth * ratio), 6, 3);
+    };
+
+    drawPhaseBar(move.remaining, move.total, h.moveTimerBarY, 0x7fe7dc, activePhase === 'move');
+    drawPhaseBar(aim.remaining, aim.total, h.aimTimerBarY, 0xf2b84b, activePhase === 'aim');
+
+    this.timerText.setText(`MOVE ${Math.ceil(move.remaining ?? 0)}s  |  AIM ${Math.ceil(aim.remaining ?? 0)}s`);
+    this.timerText.setColor(activePhase === 'aim' ? '#f2b84b' : '#7fe7dc');
     this.timerText.setY(h.timerTextY);
   }
 
