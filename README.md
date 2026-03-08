@@ -67,15 +67,15 @@ Zusatz-Flow:
 
 Desktop (Keyboard + Maus):
 
-- `Left / Right`: Tank bewegen
-- `Click` auf Boden: in Move-Phase Ziel setzen
-- `Click` auf eigenen Tank: Move-Phase beenden
-- `Up / Down` oder Mausbewegung: Rohr ausrichten
-- `A / D` oder `J / L` oder Mausrad: Schusskraft aendern
+- `Move-Phase`: `Left / Right` bewegt den aktiven Tank
+- `Move-Phase`: `Space` beendet Move und wechselt in Aim/Fire
+- `Move-Phase`: `Click` auf Boden setzt ein Bewegungsziel
+- `Aim/Fire`: `Up / Down` setzt den Winkel
+- `Aim/Fire`: `Left / Right` setzt die Schusskraft (zusaetzlich weiterhin Mausrad/Drag moeglich)
+- `Aim/Fire`: `Space` feuert (zusaetzlich `Click`/Release)
 - `Q / E`: Waffe wechseln (ueberspringt leere Waffen automatisch)
-- `Click` oder `Space`: feuern
-- `Enter`: Overlays bestaetigen
-- `H`: Help-Screen oeffnen
+- `Enter` oder `Space`: Overlay-Aktion (`PRESS BUTTON`)
+- `H`: Help-Screen oeffnen/schliessen
 - `Esc`: Help-Screen schliessen
 - `M`: Modus zwischen `Solo vs CPU` und `Local Duel` wechseln
 - `R`: neue Runde auf neuer Karte starten
@@ -89,6 +89,7 @@ Mobile (Touch, Landscape):
 - `Weapon`-Button unten rechts: Waffe wechseln
 - `Help`-Button unten rechts: Hilfe oeffnen/schliessen
 - Beim ersten Touch versucht das Spiel `Fullscreen` + `Landscape-Lock` (Browser-abhaengig).
+- Der Help-Screen zeigt die Controls als HTML-Tabelle innerhalb eines scrollbaren Dialog-Textbereichs.
 
 ## Waffen
 
@@ -173,6 +174,7 @@ Beim ersten Laden erscheint ein eigenstaendiger Boot-Screen:
 - **Einstellungen**: Fullscreen und Sound können vorab konfiguriert werden.
 - **Persistenz**: Gewaehlte Einstellungen werden im `localStorage` gespeichert und beim nächsten Start automatisch geladen.
 - **Transition**: Ein weicher Fade-Out leitet zum eigentlichen Spiel-Startscreen über.
+- **Fullscreen-Target**: Browser-Fullscreen wird auf den kompletten `#app`-Container gelegt, damit Canvas + DOM-UI (Help-Tabelle) konsistent sichtbar bleiben.
 
 ## Run
 
@@ -213,7 +215,8 @@ npm run preview
 - Wind als echter Gameplay-Faktor
 - Flugbahn-Vorschau in der Aim-Phase (Bouncer: Aufprallpunkt-Indikator)
 - Startscreen mit klickbarer Moduswahl, Score-Karten und CTA
-- Help-Screen, Turn-Handoff und Game-Over-Flow
+- einheitliches Dialogsystem fuer Turn-Handoff, Help und Game-Over (zentriert, gleiches Raster, Header/Text/Footer)
+- Help-Screen mit HTML-Controls-Tabelle und scrollbarem Textbereich (Mausrad, Pfeiltasten, Swipe/Drag)
 - CPU-Gegner mit ballistischer Zielsuche, Fehlerkorrektur und situativer Waffenwahl
 - Rundenstatistiken und persistenter Highscore via `localStorage`
 - animierte HP-Bars, Schadenstexte und Trefferfeedback
@@ -245,8 +248,9 @@ npm run preview
   - enthaelt Finisher-Inszenierung und Reduced-Motion-Schalter fuer Accessibility
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
-  - Help-Overlay als eigener Dialog mit 2-Spalten-Layout, hartem Clip und Scrollbar innerhalb des Dialograhmens
-  - kompakter Turn-/Spielerwechsel-Dialog mit separatem, kollisionsfreiem Textlayout
+  - einheitliches Dialog-Rendering fuer Turn-/Help-/GameOver inklusive Header/Text/Footer-Bereichen
+  - Help-Overlay mit HTML-Controls-Tabelle im scrollbaren DOM-Panel + Fallback-Textmodus
+  - Dialog-Scrolling ueber Mausrad, Pfeiltasten/PageUp/PageDown/Home/End sowie Touch-/Mouse-Drag
 - `src/game/config/sceneContracts.js`
   - zentrale Scene-Keys (`boot/game/ui`) und Game->UI Event-Namen (`hud:update`, `overlay:update`, ...)
 - `src/game/arcade/arcadeConfig.js`
@@ -286,6 +290,8 @@ npm run preview
   - entkoppelt mobile HUD-Buttons (Weapon/Help) von der UIScene
 - `src/game/ui/OrientationGuard.js`
   - kapselt Portrait/Landscape-Guard inkl. Pause/Resume-Logik
+- `src/game/ui/DialogLayoutModule.js`
+  - zentrale Layout-Berechnung fuer das einheitliche 80%-Dialograster (Panel/Header/Text/Footer + Scrollbar-Spur)
 
 ## Technische Hinweise
 
@@ -325,9 +331,9 @@ npm run preview
   - `GameScene` nutzt Pooling fuer Damage-Text, Impact-Callouts, Debris und Impact-Shards
   - reduziert create/destroy-Spitzen in Explosion-lastigen Spielsituationen
 - `Refactor Phase 5` abgeschlossen (Overlay-Dialoge):
-  - Help-Dialog von Grund auf mit eigener Geometrie neu aufgebaut
-  - Scrollbereich, Masken und Scrollbar sind fest an den Dialog-Content gebunden
-  - Turn-Dialog kompakter gemacht und Text-Ueberlagerungen im Spielerwechsel beseitigt
+  - einheitliches Dialogmodul fuer Turn-/Help-/GameOver eingefuehrt
+  - scrollbarer Textbereich mit konsistentem Masking/Scrollbar-Verhalten
+  - Help-Dialog auf HTML-Controls-Tabelle umgestellt, inkl. Fullscreen-kompatiblem DOM-Rendering
 
 ## Troubleshooting
 
@@ -341,6 +347,9 @@ npm run preview
   - fuer realistischere Performance `npm run build` und `npm run preview` nutzen
 - Falscher Stand im Browser:
   - Tab hart neu laden, damit das aktuelle Vite-Bundle verwendet wird
+- Fullscreen wirkt inkonsistent oder `Esc` zeigt Chrome-Hinweis:
+  - Browser-`F11` und Ingame-Fullscreen (`F`) nicht mischen, sondern eine Methode verwenden
+  - falls noetig mit `Esc` nur den Ingame-Fullscreen verlassen und dann erneut per `(F)` aktivieren
 
 ## Bekannte Tradeoffs
 

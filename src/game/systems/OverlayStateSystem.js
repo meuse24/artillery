@@ -42,7 +42,7 @@ export class OverlayStateSystem {
       tagline: 'Read the wind. Break the hill. Every map is different.',
       modeLabel: this.scene.getModeLabel(),
       modeKey: this.scene.currentMode,
-      prompt: 'Click/Tap, Space or Enter to continue'
+      prompt: 'PRESS BUTTON TO START GAME'
     });
   }
 
@@ -63,7 +63,7 @@ export class OverlayStateSystem {
       scoreboard: this.buildScoreboardText(),
       prompt: this.scene.isCpuControlledPlayer()
         ? 'CPU thinking...'
-        : 'Click/Tap, Space or Enter when ready  |  H or Help button'
+        : 'PRESS BUTTON WHEN READY  |  (H) HELP'
     });
     this.scene.syncHud();
 
@@ -98,7 +98,7 @@ export class OverlayStateSystem {
         this.scene.telemetrySystem?.getSummaryText() ?? ''
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
-      prompt: 'Click/Tap, Space, Enter or R for a new game  |  M/switch mode link  |  H/Help'
+      prompt: 'PRESS BUTTON or (R) NEW GAME  |  (M) SWITCH MODE  |  (H) HELP'
     });
   }
 
@@ -128,7 +128,7 @@ export class OverlayStateSystem {
       'ARCADE SYSTEMS',
       '- Combo + Skillshots grant score bonuses',
       '- Mutators can alter gravity/wind and late-round damage',
-      '- Press V for reduced motion mode',
+      '- Press (V) for reduced motion mode',
       '',
       'TECH STACK',
       'JavaScript (ES Modules)',
@@ -143,27 +143,15 @@ export class OverlayStateSystem {
       'globals 16.5.0 - MIT',
       '',
       'CREDITS',
-      `(C) ${currentYear} MEUSE24`,
+      `(C) ${currentYear} MEUSE24  -  MIT License`,
       'Thanks to Phaser, Vite, ESLint,',
-      'Claude Code, Codex,',
+      'Claude Code, Codex, Suno,',
       'and the developers of all open-source tooling.'
     ].join('\n');
   }
 
   buildHelpSidebar() {
     return [
-      'CONTROLS',
-      'Move ............ Left/Right or tap terrain',
-      'Skip move ....... Space or tap own tank',
-      'Aim ............. Mouse/drag or Up/Down',
-      'Power ........... Wheel/drag or A/D/J/L',
-      'Fire ............ Click/release or Space',
-      'Weapon .......... Q/E or mobile Weapon',
-      'Confirm overlay . Click/Space/Enter',
-      'Help ............ H / Esc / mobile Help',
-      'Reduced motion .. V',
-      'Restart ......... R',
-      '',
       'WEAPONS',
       'Basic Shell  - balanced',
       'Heavy Mortar - slow, high blast',
@@ -177,8 +165,23 @@ export class OverlayStateSystem {
       '',
       'MODE',
       `${this.scene.getModeLabel()} active`,
-      'Switch mode via M or the Switch Mode link on start/game-over.'
+      'Switch mode via (M) or the Switch Mode link on start/game-over.'
     ].join('\n');
+  }
+
+  buildHelpControlsRows() {
+    return [
+      { action: 'Move', input: '(←)/(→) or tap terrain' },
+      { action: 'End move', input: '(Space) Fire' },
+      { action: 'Aim angle', input: '(↑)/(↓) or mouse/drag' },
+      { action: 'Power', input: '(←)/(→) or wheel/drag' },
+      { action: 'Fire', input: '(Space) or click/release' },
+      { action: 'Weapon', input: '(Q)/(E) or mobile Weapon (always)' },
+      { action: 'Confirm', input: 'PRESS BUTTON' },
+      { action: 'Help', input: '(H) / (Esc) / mobile Help' },
+      { action: 'Reduced motion', input: '(V)' },
+      { action: 'Restart', input: '(R)' }
+    ];
   }
 
   showHelpOverlay() {
@@ -188,7 +191,8 @@ export class OverlayStateSystem {
       title: 'Help',
       body: this.buildHelpBody(),
       scoreboard: this.buildHelpSidebar(),
-      prompt: 'Click/Tap, Esc, H, Space or Enter to close help'
+      controlsRows: this.buildHelpControlsRows(),
+      prompt: 'PRESS BUTTON, (Esc) or (H) to close help'
     });
   }
 }

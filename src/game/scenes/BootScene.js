@@ -127,14 +127,19 @@ export class BootScene extends Phaser.Scene {
       .on('pointerover', () => this.startButton.setFillStyle(0xf2b84b, 0.42))
       .on('pointerout', () => this.startButton.setFillStyle(0xf2b84b, 0.32));
 
-    this.add
-      .text(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5 + 224, 'Hotkeys: F fullscreen, S sound, Enter/Space start', {
+    this.hotkeyPrefix = this.add
+      .text(0, 0, 'HOTKEYS', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
-        fontSize: '15px',
+        fontSize: '14px',
+        fontStyle: 'bold',
         color: '#b7c7d0'
       })
       .setOrigin(0.5)
       .setDepth(501);
+    this.hotkeyFullscreen = this.createHotkeyChip('(F) FULLSCREEN', '#7fe7dc', () => this.togglePreference('fullscreen'));
+    this.hotkeySound = this.createHotkeyChip('(S) SOUND', '#f2b84b', () => this.togglePreference('sound'));
+    this.hotkeyStart = this.createHotkeyChip('(ENTER)/(SPACE) START', '#ffd995', () => this.startFromBoot());
+    this.layoutBootHotkeys();
 
     this.input.keyboard?.on('keydown-F', () => this.togglePreference('fullscreen'));
     this.input.keyboard?.on('keydown-S', () => this.togglePreference('sound'));
@@ -230,6 +235,48 @@ export class BootScene extends Phaser.Scene {
       .setDepth(502);
   }
 
+  createHotkeyChip(label, color, onPress) {
+    const chip = this.add
+      .text(0, 0, label, {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '14px',
+        fontStyle: 'bold',
+        color,
+        backgroundColor: 'rgba(11,22,30,0.88)',
+        padding: { x: 10, y: 5 }
+      })
+      .setOrigin(0.5)
+      .setDepth(502)
+      .setInteractive({ useHandCursor: true });
+
+    chip
+      .on('pointerdown', (_pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
+        onPress?.();
+      })
+      .on('pointerover', () => chip.setBackgroundColor('rgba(26,48,63,0.96)'))
+      .on('pointerout', () => chip.setBackgroundColor('rgba(11,22,30,0.88)'));
+
+    return chip;
+  }
+
+  layoutBootHotkeys() {
+    const hotkeyY = GAME_HEIGHT * 0.5 + 224;
+    const gap = 10;
+    const items = [
+      this.hotkeyPrefix,
+      this.hotkeyFullscreen,
+      this.hotkeySound,
+      this.hotkeyStart
+    ];
+    const totalWidth = items.reduce((sum, item) => sum + item.displayWidth, 0) + gap * (items.length - 1);
+    let cursor = GAME_WIDTH * 0.5 - totalWidth * 0.5;
+    items.forEach((item) => {
+      item.setPosition(cursor + item.displayWidth * 0.5, hotkeyY);
+      cursor += item.displayWidth + gap;
+    });
+  }
+
   togglePreference(key) {
     if (!(key in this.startPreferences)) {
       return;
@@ -255,8 +302,8 @@ export class BootScene extends Phaser.Scene {
     const fullscreenOn = this.startPreferences.fullscreen;
     const soundOn = this.startPreferences.sound;
 
-    this.fullscreenText.setText(`Fullscreen: ${fullscreenOn ? 'ON' : 'OFF'}`);
-    this.soundText.setText(`Sound: ${soundOn ? 'ON' : 'OFF'}`);
+    this.fullscreenText.setText(`(F) Fullscreen: ${fullscreenOn ? 'ON' : 'OFF'}`);
+    this.soundText.setText(`(S) Sound: ${soundOn ? 'ON' : 'OFF'}`);
 
     this.fullscreenButton.setFillStyle(fullscreenOn ? 0x183e53 : 0x17222c, 0.9);
     this.fullscreenButton.setStrokeStyle(1.5, 0x7fe7dc, fullscreenOn ? 0.34 : 0.16);

@@ -14,7 +14,6 @@ export class MobileControls {
       const gameScene = this.scene.gameScene;
       if (!gameScene) return;
       if (gameScene.overlayState || gameScene.gameOver || gameScene.resolving || gameScene.isCpuControlledPlayer()) return;
-      if (gameScene.turnPhase !== 'aim') return;
       const player = gameScene.getActivePlayer();
       gameScene.cycleWeapon(player, 1);
       gameScene.markPredictionDirty();

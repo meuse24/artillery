@@ -11,13 +11,17 @@ const config = {
   width: GAME_WIDTH,
   height: GAME_HEIGHT,
   backgroundColor: '#10242f',
+  dom: {
+    createContainer: true
+  },
   audio: {
     noAudio: true
   },
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH,
-    expandParent: true
+    expandParent: true,
+    fullscreenTarget: 'app'
   },
   scene: [BootScene, GameScene, UIScene]
 };

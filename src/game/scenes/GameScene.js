@@ -1363,22 +1363,9 @@ export class GameScene extends Phaser.Scene {
       }
 
       const powerAxis =
-        (this.inputKeys.d.isDown || this.inputKeys.l.isDown ? 1 : 0) -
-        (this.inputKeys.a.isDown || this.inputKeys.j.isDown ? 1 : 0);
+        (this.inputKeys.right.isDown ? 1 : 0) - (this.inputKeys.left.isDown ? 1 : 0);
       if (powerAxis !== 0) {
         player.setPower(player.power + powerAxis * POWER_STEP * dt);
-        this.markPredictionDirty();
-        hudDirty = true;
-      }
-
-      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.q)) {
-        this.cycleWeapon(player, -1);
-        this.markPredictionDirty();
-        hudDirty = true;
-      }
-
-      if (Phaser.Input.Keyboard.JustDown(this.inputKeys.e)) {
-        this.cycleWeapon(player, 1);
         this.markPredictionDirty();
         hudDirty = true;
       }
@@ -1387,6 +1374,18 @@ export class GameScene extends Phaser.Scene {
         this.fireActiveWeapon();
         hudDirty = true;
       }
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.inputKeys.q)) {
+      this.cycleWeapon(player, -1);
+      this.markPredictionDirty();
+      hudDirty = true;
+    }
+
+    if (Phaser.Input.Keyboard.JustDown(this.inputKeys.e)) {
+      this.cycleWeapon(player, 1);
+      this.markPredictionDirty();
+      hudDirty = true;
     }
 
     if (hudDirty) {

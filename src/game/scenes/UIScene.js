@@ -1,6 +1,7 @@
 import Phaser from 'phaser';
 import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
+import { DialogLayoutModule } from '../ui/DialogLayoutModule.js';
 import { MobileControls } from '../ui/MobileControls.js';
 import { OrientationGuard } from '../ui/OrientationGuard.js';
 
@@ -23,6 +24,14 @@ export class UIScene extends Phaser.Scene {
     this.gameoverScrollY = 0;
     this.gameoverMaxScroll = 0;
     this.gameoverBodyBaseY = 0;
+    this.lastHudState = null;
+    this.dialogScrollY = 0;
+    this.dialogMaxScroll = 0;
+    this.dialogBodyBaseY = 0;
+    this.dialogLayout = null;
+    this.dialogLayoutModule = new DialogLayoutModule();
+    this.dialogDragPointerId = null;
+    this.dialogDragLastY = 0;
 
     // ── HUD layer ──────────────────────────────────────────────────────────────
     this.panel = this.add.graphics().setDepth(100);
@@ -137,7 +146,7 @@ export class UIScene extends Phaser.Scene {
       .setVisible(this.isTouchDevice)
       .setInteractive({ useHandCursor: true });
     this.mobileHelpButton = this.add
-      .text(0, 0, 'Help ?', {
+      .text(0, 0, 'Help (H)', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '14px',
         fontStyle: 'bold',
@@ -212,17 +221,27 @@ export class UIScene extends Phaser.Scene {
       })
       .setDepth(122)
       .setVisible(false);
+    this.helpHtmlNode = document.createElement('div');
+    this.helpHtmlNode.className = 'help-controls-pane';
+    this.helpHtmlPane = this.add
+      .dom(0, 0, this.helpHtmlNode)
+      .setOrigin(0, 0)
+      .setDepth(122)
+      .setVisible(false);
 
     // Real clipping mask for help text area (prevents overflow on all sides).
     this.helpMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
     this.helpTextMask = this.helpMaskGraphics.createGeometryMask();
     this.gameoverMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
     this.gameoverTextMask = this.gameoverMaskGraphics.createGeometryMask();
+    this.dialogMaskGraphics = this.make.graphics({ x: 0, y: 0, add: false });
+    this.dialogTextMask = this.dialogMaskGraphics.createGeometryMask();
     // Legacy cover graphics (kept for compatibility, currently unused for clipping)
     this.helpClip = this.add.graphics().setDepth(121.5);
     // Scrollbar drawn above clip (depth 125)
     this.helpScrollbar = this.add.graphics().setDepth(125).setVisible(false);
     this.gameoverScrollbar = this.add.graphics().setDepth(125).setVisible(false);
+    this.dialogScrollbar = this.add.graphics().setDepth(125).setVisible(false);
 
     // Title and prompt always render above everything overlay-related
     this.overlayTitle = this.add
@@ -246,6 +265,12 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(124)
       .setVisible(false);
+    this.dialogScrollHitArea = this.add
+      .zone(0, 0, 10, 10)
+      .setDepth(123)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: false });
+    this.dialogScrollHitArea.on('pointerdown', this.handleDialogPointerDown, this);
 
     // ── Start overlay decorative / specific elements ───────────────────────────
     this.startDeco = this.add.graphics().setDepth(121).setVisible(false);
@@ -368,7 +393,7 @@ export class UIScene extends Phaser.Scene {
       .setVisible(false);
     // "How to Play" and "Switch Mode" as interactive text links below action bar
     this.startHowToPlayText = this.add
-      .text(0, 0, '?  HOW TO PLAY', {
+      .text(0, 0, '(H) HOW TO PLAY', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '13px',
         fontStyle: 'bold',
@@ -378,7 +403,7 @@ export class UIScene extends Phaser.Scene {
       .setDepth(123)
       .setVisible(false);
     this.startSwitchModeText = this.add
-      .text(0, 0, 'M  SWITCH MODE', {
+      .text(0, 0, '(M) SWITCH MODE', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '13px',
         fontStyle: 'bold',
@@ -387,6 +412,10 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(123)
       .setVisible(false);
+    this.hotkeyHelpButton = this.createShortcutButton('(H) HELP', '#7fe7dc', () => this.handleHotkeyHelp());
+    this.hotkeyModeButton = this.createShortcutButton('(M) MODE', '#f2b84b', () => this.handleHotkeyMode());
+    this.hotkeyRestartButton = this.createShortcutButton('(R) RESTART', '#ffd995', () => this.handleHotkeyRestart());
+    this.hotkeyMotionButton = this.createShortcutButton('(V) MOTION', '#d7e9aa', () => this.handleHotkeyMotion());
 
     // ── Animation groups ───────────────────────────────────────────────────────
     this.overlayContent = [
@@ -515,14 +544,12 @@ export class UIScene extends Phaser.Scene {
     this.mobileControls = new MobileControls(this);
     this.mobileControls.bind();
 
-    // Mouse wheel — help overlay scroll
-    this.input.on('wheel', (_ptr, _objs, _dx, deltaY) => {
-      if (this.gameScene.overlayState?.type === 'help') {
-        this.scrollHelp(deltaY * 0.55);
-      } else if (this.gameScene.overlayState?.type === 'gameover') {
-        this.scrollRoundOver(deltaY * 0.55);
-      }
-    });
+    // Unified dialog scrolling: mouse wheel + keyboard + drag/swipe
+    this.input.on('wheel', this.handleOverlayWheel, this);
+    this.input.on('pointermove', this.handleDialogPointerMove, this);
+    this.input.on('pointerup', this.handleDialogPointerUp, this);
+    this.input.on('pointerupoutside', this.handleDialogPointerUp, this);
+    this.input.keyboard?.on('keydown', this.handleDialogKeyDown, this);
 
     // ── Subscribe to game events ───────────────────────────────────────────────
     this.gameScene.events.on(GAME_SCENE_EVENTS.HUD_UPDATE, this.updateHud, this);
@@ -546,16 +573,255 @@ export class UIScene extends Phaser.Scene {
     this.events.once('destroy', this.handleShutdown, this);
   }
 
+  createShortcutButton(label, color, onPress) {
+    const button = this.add
+      .text(0, 0, label, {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '13px',
+        fontStyle: 'bold',
+        color,
+        backgroundColor: 'rgba(11,22,30,0.88)',
+        padding: { x: 10, y: 4 }
+      })
+      .setOrigin(0.5)
+      .setDepth(126)
+      .setVisible(false)
+      .setInteractive({ useHandCursor: true });
+
+    button
+      .on('pointerdown', (_pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
+        onPress?.();
+      })
+      .on('pointerover', () => button.setBackgroundColor('rgba(26,48,63,0.96)'))
+      .on('pointerout', () => button.setBackgroundColor('rgba(11,22,30,0.88)'));
+
+    return button;
+  }
+
+  hideShortcutButtons() {
+    [
+      this.hotkeyHelpButton,
+      this.hotkeyModeButton,
+      this.hotkeyRestartButton,
+      this.hotkeyMotionButton
+    ].forEach((button) => button?.setVisible(false));
+  }
+
+  layoutShortcutRow(entries, { x, y, anchor = 'center' } = {}) {
+    if (!entries.length) {
+      return;
+    }
+
+    const gap = this.compactLayout ? 8 : 12;
+    entries.forEach(({ button, label }) => {
+      button.setText(label);
+      button.setBackgroundColor('rgba(11,22,30,0.88)');
+      button.setVisible(true);
+    });
+
+    const totalWidth =
+      entries.reduce((sum, { button }) => sum + button.displayWidth, 0) + gap * (entries.length - 1);
+    let cursor = anchor === 'right' ? x - totalWidth : x - totalWidth * 0.5;
+
+    entries.forEach(({ button }) => {
+      const width = button.displayWidth;
+      button.setPosition(cursor + width * 0.5, y);
+      cursor += width + gap;
+    });
+  }
+
+  handleHotkeyHelp() {
+    if (!this.gameScene) {
+      return;
+    }
+
+    this.gameScene.blockPointerInput?.(140);
+    const type = this.gameScene.overlayState?.type;
+    if (type === 'help') {
+      this.handleOverlayClick();
+      return;
+    }
+    this.gameScene.showHelpOverlay();
+  }
+
+  handleHotkeyMode() {
+    if (!this.gameScene) {
+      return;
+    }
+
+    const type = this.gameScene.overlayState?.type;
+    if (type !== 'start' && type !== 'gameover') {
+      return;
+    }
+
+    this.gameScene.blockPointerInput?.(140);
+    this.gameScene.toggleMode();
+    if (type === 'start') {
+      this.gameScene.showStartOverlay();
+    } else {
+      this.gameScene.showGameOverOverlay();
+    }
+    this.gameScene.syncHud();
+  }
+
+  handleHotkeyRestart() {
+    if (!this.gameScene) {
+      return;
+    }
+
+    const type = this.gameScene.overlayState?.type;
+    if (type && type !== 'gameover') {
+      return;
+    }
+
+    this.gameScene.blockPointerInput?.(140);
+    this.gameScene.startMatch();
+  }
+
+  handleHotkeyMotion() {
+    if (!this.gameScene) {
+      return;
+    }
+    this.gameScene.toggleReducedMotion();
+  }
+
+  refreshShortcutButtons() {
+    this.hideShortcutButtons();
+    if (!this.gameScene) {
+      return;
+    }
+
+    const overlay = this.gameScene.overlayState;
+    if (overlay) {
+      this.refreshOverlayShortcutButtons(overlay);
+      return;
+    }
+
+    if (this.lastHudState) {
+      this.refreshHudShortcutButtons(this.lastHudState);
+    }
+  }
+
+  refreshOverlayShortcutButtons(overlay) {
+    if (!overlay) {
+      return;
+    }
+
+    const y = this.overlayPrompt.y + (this.compactLayout ? 24 : 26);
+
+    if (overlay.type === 'gameover') {
+      this.layoutShortcutRow([
+        { button: this.hotkeyRestartButton, label: '(R) NEW GAME' },
+        { button: this.hotkeyModeButton, label: '(M) SWITCH MODE' },
+        { button: this.hotkeyHelpButton, label: '(H) HELP' }
+      ], { x: this.overlayPanel.x, y });
+      return;
+    }
+
+  }
+
+  refreshHudShortcutButtons(state) {
+    if (!state || !this.controlsText.visible) {
+      return;
+    }
+
+    const y = this.controlsText.y - this.controlsText.displayHeight - (this.compactLayout ? 9 : 11);
+    const entries = state.gameOver
+      ? [
+          { button: this.hotkeyRestartButton, label: '(R) RESTART' },
+          { button: this.hotkeyMotionButton, label: '(V) MOTION' },
+          { button: this.hotkeyHelpButton, label: '(H) HELP' }
+        ]
+      : [
+          { button: this.hotkeyMotionButton, label: '(V) MOTION' },
+          { button: this.hotkeyHelpButton, label: '(H) HELP' }
+        ];
+
+    this.layoutShortcutRow(entries, {
+      x: GAME_WIDTH - 18,
+      y,
+      anchor: 'right'
+    });
+  }
+
+  escapeHtml(value) {
+    return String(value ?? '')
+      .replaceAll('&', '&amp;')
+      .replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;')
+      .replaceAll('"', '&quot;')
+      .replaceAll("'", '&#39;');
+  }
+
+  renderHelpHtmlContent(overlay) {
+    if (!this.helpHtmlNode || !overlay) {
+      return;
+    }
+
+    const controlsRows = Array.isArray(overlay.controlsRows) ? overlay.controlsRows : [];
+    const controlsRowsHtml = controlsRows.map((row) => {
+      const action = this.escapeHtml(row.action);
+      const input = this.escapeHtml(row.input);
+      return `<tr><td>${action}</td><td>${input}</td></tr>`;
+    }).join('');
+    const bodyHtml = this.escapeHtml(overlay.body ?? '').replaceAll('\n', '<br>');
+    const sidebarHtml = this.escapeHtml(overlay.scoreboard ?? '').replaceAll('\n', '<br>');
+
+    this.helpHtmlNode.innerHTML = `
+      <div class="help-html-block">${bodyHtml}</div>
+      <div class="help-html-controls-title">CONTROLS</div>
+      <table class="help-controls-table" aria-label="Controls">
+        <thead>
+          <tr><th>Action</th><th>Input</th></tr>
+        </thead>
+        <tbody>${controlsRowsHtml}</tbody>
+      </table>
+      <div class="help-html-block">${sidebarHtml}</div>
+    `;
+    this.helpHtmlNode.scrollTop = 0;
+  }
+
+  buildHelpFallbackText(overlay) {
+    const controlsRows = Array.isArray(overlay?.controlsRows) ? overlay.controlsRows : [];
+    const controlLines = controlsRows.map((row) => `${row.action}: ${row.input}`);
+    return [
+      overlay?.body ?? '',
+      '',
+      'CONTROLS',
+      ...controlLines,
+      '',
+      overlay?.scoreboard ?? ''
+    ].filter(Boolean).join('\n');
+  }
+
+  scrollHelpHtmlPane(deltaY) {
+    if (!this.helpHtmlNode) {
+      return;
+    }
+    this.helpHtmlNode.scrollTop += deltaY;
+  }
+
   handleShutdown() {
     this.scale.off('resize', this.applyResponsiveLayout, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.HUD_UPDATE, this.updateHud, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.TURN_BANNER, this.showBanner, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.OVERLAY_UPDATE, this.updateOverlay, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.TIMER_UPDATE, this.updateTimer, this);
+    this.input.off('wheel', this.handleOverlayWheel, this);
+    this.input.off('pointermove', this.handleDialogPointerMove, this);
+    this.input.off('pointerup', this.handleDialogPointerUp, this);
+    this.input.off('pointerupoutside', this.handleDialogPointerUp, this);
+    this.input.keyboard?.off('keydown', this.handleDialogKeyDown, this);
+    this.dialogScrollHitArea?.off('pointerdown', this.handleDialogPointerDown, this);
     this.mobileControls?.destroy();
     this.mobileControls = null;
     this.orientationGuard?.destroy();
     this.orientationGuard = null;
+    this.helpHtmlPane?.setVisible(false);
+    if (this.helpHtmlNode) {
+      this.helpHtmlNode.innerHTML = '';
+    }
   }
 
   // ── Overlay click router ─────────────────────────────────────────────────────
@@ -581,6 +847,245 @@ export class UIScene extends Phaser.Scene {
         this.gameScene.syncHud();
       }
     }
+  }
+
+  scrollActiveDialogBy(deltaY) {
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (!this.isUnifiedDialogType(overlayType)) {
+      return;
+    }
+
+    if (overlayType === 'help' && this.helpHtmlPane?.visible) {
+      this.scrollHelpHtmlPane(deltaY);
+      return;
+    }
+
+    this.scrollUnifiedDialog(deltaY);
+  }
+
+  handleOverlayWheel(_pointer, _objects, _deltaX, deltaY) {
+    if (!this.isUnifiedDialogType(this.gameScene?.overlayState?.type)) {
+      return;
+    }
+    this.scrollActiveDialogBy(deltaY * 0.58);
+  }
+
+  handleDialogKeyDown(event) {
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (!this.isUnifiedDialogType(overlayType)) {
+      return;
+    }
+
+    const viewportHeight = this.getUnifiedDialogViewport().height;
+    let deltaY = 0;
+    if (event.code === 'ArrowUp') {
+      deltaY = -36;
+    } else if (event.code === 'ArrowDown') {
+      deltaY = 36;
+    } else if (event.code === 'PageUp') {
+      deltaY = -Math.max(120, viewportHeight * 0.72);
+    } else if (event.code === 'PageDown') {
+      deltaY = Math.max(120, viewportHeight * 0.72);
+    } else if (event.code === 'Home') {
+      deltaY = -Number.MAX_SAFE_INTEGER;
+    } else if (event.code === 'End') {
+      deltaY = Number.MAX_SAFE_INTEGER;
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    this.scrollActiveDialogBy(deltaY);
+  }
+
+  handleDialogPointerDown(pointer, _lx, _ly, event) {
+    if (!this.isUnifiedDialogType(this.gameScene?.overlayState?.type)) {
+      return;
+    }
+    event?.stopPropagation();
+    this.dialogDragPointerId = pointer.id;
+    this.dialogDragLastY = pointer.y;
+  }
+
+  handleDialogPointerMove(pointer) {
+    if (this.dialogDragPointerId === null || pointer.id !== this.dialogDragPointerId) {
+      return;
+    }
+    if (!this.isUnifiedDialogType(this.gameScene?.overlayState?.type)) {
+      this.dialogDragPointerId = null;
+      return;
+    }
+
+    const deltaY = this.dialogDragLastY - pointer.y;
+    this.dialogDragLastY = pointer.y;
+    if (Math.abs(deltaY) > 0) {
+      this.scrollActiveDialogBy(deltaY);
+    }
+  }
+
+  handleDialogPointerUp(pointer) {
+    if (this.dialogDragPointerId === null) {
+      return;
+    }
+    if (pointer && pointer.id !== this.dialogDragPointerId) {
+      return;
+    }
+    this.dialogDragPointerId = null;
+  }
+
+  isUnifiedDialogType(type) {
+    return type === 'turn' || type === 'help' || type === 'gameover';
+  }
+
+  getUnifiedDialogLayout() {
+    this.dialogLayout = this.dialogLayoutModule.compute({ compact: this.compactLayout });
+    return this.dialogLayout;
+  }
+
+  getUnifiedDialogViewport() {
+    const layout = this.dialogLayout ?? this.getUnifiedDialogLayout();
+    return {
+      top: layout.text.y,
+      height: layout.text.height
+    };
+  }
+
+  layoutUnifiedDialog(resetScroll = false) {
+    const layout = this.getUnifiedDialogLayout();
+    const overlayType = this.gameScene?.overlayState?.type;
+    const isHelpOverlay = overlayType === 'help';
+    const hasHelpHtml = isHelpOverlay && Boolean(this.helpHtmlNode?.innerHTML?.trim());
+    this.overlayPanel.setPosition(layout.panel.x, layout.panel.y);
+    this.overlayPanel.width = layout.panel.width;
+    this.overlayPanel.height = layout.panel.height;
+    this.overlayTitle.setPosition(layout.panel.x, layout.header.titleY);
+    this.overlayTitle.setWordWrapWidth(layout.panel.width - (this.compactLayout ? 72 : 88), true);
+    this.overlayBody.setPosition(layout.text.x, layout.text.y);
+    this.overlayBody.setWordWrapWidth(layout.text.width, true);
+    this.overlayPrompt.setPosition(layout.panel.x, layout.footer.promptY);
+    this.overlayPrompt.setWordWrapWidth(layout.text.width, true);
+
+    if (resetScroll) {
+      this.dialogScrollY = 0;
+    }
+
+    const viewport = this.getUnifiedDialogViewport();
+    this.dialogMaxScroll = Math.max(0, this.overlayBody.height - viewport.height);
+    this.dialogScrollY = Phaser.Math.Clamp(this.dialogScrollY, 0, this.dialogMaxScroll);
+    this.dialogBodyBaseY = viewport.top;
+    this.overlayBody.y = this.dialogBodyBaseY - this.dialogScrollY;
+    this.dialogScrollHitArea.setPosition(
+      layout.text.x + layout.text.width * 0.5,
+      layout.text.y + layout.text.height * 0.5
+    );
+    this.dialogScrollHitArea.setSize(layout.text.width, layout.text.height);
+    this.dialogScrollHitArea.setVisible(this.isUnifiedDialogType(overlayType));
+
+    this.helpHtmlPane?.setVisible(hasHelpHtml);
+    if (hasHelpHtml && this.helpHtmlPane?.node) {
+      this.helpHtmlPane.setPosition(layout.text.x, layout.text.y);
+      this.helpHtmlPane.node.style.width = `${Math.floor(layout.text.width)}px`;
+      this.helpHtmlPane.node.style.height = `${Math.floor(layout.text.height)}px`;
+    }
+
+    if (isHelpOverlay && hasHelpHtml) {
+      if (resetScroll && this.helpHtmlNode) {
+        this.helpHtmlNode.scrollTop = 0;
+      }
+      this.dialogMaxScroll = 0;
+      this.dialogScrollY = 0;
+      this.dialogMaskGraphics.clear();
+      this.overlayBody.clearMask();
+      this.dialogScrollbar.clear();
+      this.dialogScrollbar.setVisible(false);
+      this.drawUnifiedDialogCard();
+      return;
+    }
+
+    this.drawUnifiedDialogMask();
+    this.drawUnifiedDialogScrollbar();
+    this.drawUnifiedDialogCard();
+  }
+
+  scrollUnifiedDialog(deltaY) {
+    const viewport = this.getUnifiedDialogViewport();
+    this.dialogMaxScroll = Math.max(0, this.overlayBody.height - viewport.height);
+    this.dialogScrollY = Phaser.Math.Clamp(this.dialogScrollY + deltaY, 0, this.dialogMaxScroll);
+    this.overlayBody.y = this.dialogBodyBaseY - this.dialogScrollY;
+    this.drawUnifiedDialogScrollbar();
+  }
+
+  drawUnifiedDialogScrollbar() {
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (overlayType === 'help' && this.helpHtmlPane?.visible) {
+      this.dialogScrollbar.clear();
+      this.dialogScrollbar.setVisible(false);
+      return;
+    }
+    this.dialogScrollbar.clear();
+    if (this.dialogMaxScroll <= 0) {
+      this.dialogScrollbar.setVisible(false);
+      return;
+    }
+
+    this.dialogScrollbar.setVisible(true);
+    const layout = this.dialogLayout ?? this.getUnifiedDialogLayout();
+    const viewport = this.getUnifiedDialogViewport();
+    const trackY = viewport.top;
+    const trackH = viewport.height;
+    const thumbH = Math.max(30, trackH * (viewport.height / (viewport.height + this.dialogMaxScroll)));
+    const thumbY = trackY + (trackH - thumbH) * (this.dialogScrollY / this.dialogMaxScroll);
+    this.dialogScrollbar.fillStyle(0x1a2c38, 0.9);
+    this.dialogScrollbar.fillRoundedRect(layout.scrollbar.x, trackY, layout.scrollbar.width, trackH, 3);
+    this.dialogScrollbar.fillStyle(0x7fe7dc, 0.58);
+    this.dialogScrollbar.fillRoundedRect(layout.scrollbar.x, thumbY, layout.scrollbar.width, thumbH, 3);
+  }
+
+  drawUnifiedDialogMask() {
+    this.dialogMaskGraphics.clear();
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (!this.isUnifiedDialogType(overlayType) || (overlayType === 'help' && this.helpHtmlPane?.visible)) {
+      this.overlayBody.clearMask();
+      return;
+    }
+
+    const layout = this.dialogLayout ?? this.getUnifiedDialogLayout();
+    const viewport = this.getUnifiedDialogViewport();
+    this.dialogMaskGraphics.fillStyle(0xffffff, 1);
+    this.dialogMaskGraphics.fillRect(layout.text.x, viewport.top, layout.text.width, viewport.height);
+    this.overlayBody.setMask(this.dialogTextMask);
+  }
+
+  drawUnifiedDialogCard() {
+    this.turnDialogCard.clear();
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (!this.isUnifiedDialogType(overlayType)) {
+      return;
+    }
+
+    const layout = this.dialogLayout ?? this.getUnifiedDialogLayout();
+    const x = layout.panel.left;
+    const y = layout.panel.top;
+    const w = layout.panel.width;
+    const h = layout.panel.height;
+    const headerH = layout.header.height;
+    const footerH = layout.footer.height;
+
+    this.turnDialogCard.fillStyle(0x061522, 0.98);
+    this.turnDialogCard.fillRoundedRect(x, y, w, h, 14);
+    this.turnDialogCard.lineStyle(2, 0xffffff, 0.14);
+    this.turnDialogCard.strokeRoundedRect(x, y, w, h, 14);
+
+    this.turnDialogCard.fillStyle(0x0d2635, 0.98);
+    this.turnDialogCard.fillRoundedRect(x + 1, y + 1, w - 2, headerH, 12);
+    this.turnDialogCard.lineStyle(1, 0xffffff, 0.16);
+    this.turnDialogCard.beginPath();
+    this.turnDialogCard.moveTo(x + 18, y + headerH);
+    this.turnDialogCard.lineTo(x + w - 18, y + headerH);
+    this.turnDialogCard.strokePath();
+
+    this.turnDialogCard.fillStyle(0x0a1b28, 0.94);
+    this.turnDialogCard.fillRoundedRect(x + 1, y + h - footerH - 1, w - 2, footerH, 10);
   }
 
   // ── Help scroll ───────────────────────────────────────────────────────────────
@@ -668,11 +1173,12 @@ export class UIScene extends Phaser.Scene {
     const sidePad = this.compactLayout ? 34 : 40;
     const headerH = this.compactLayout ? 88 : 96;
     const footerH = this.compactLayout ? 56 : 60;
+    const verticalLift = this.compactLayout ? 8 : 12;
     const textX = panelLeft + sidePad;
     const textWidth = this.overlayPanel.width - sidePad * 2;
-    const titleY = panelTop + Math.round(headerH * 0.5);
-    const bodyY = panelTop + headerH + (this.compactLayout ? 18 : 22);
-    const promptY = panelTop + this.overlayPanel.height - Math.round(footerH * 0.55);
+    const titleY = panelTop + Math.round(headerH * 0.5) - verticalLift;
+    const bodyY = panelTop + headerH + (this.compactLayout ? 18 : 22) - verticalLift;
+    const promptY = panelTop + this.overlayPanel.height - Math.round(footerH * 0.55) - verticalLift;
 
     return {
       textX,
@@ -1085,26 +1591,12 @@ export class UIScene extends Phaser.Scene {
     this.windText.setWordWrapWidth(h.centerW - 16, true);
     this.objectiveText.setWordWrapWidth(h.objectiveW - 24, true);
     const activeOverlayType = this.gameScene?.overlayState?.type;
-    if (activeOverlayType === 'help') {
-      this.overlayPanel.width = this.compactLayout ? 1020 : 1120;
-      this.overlayPanel.height = this.compactLayout ? 600 : 560;
-      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
-      this.layoutHelpDialog(false);
-    } else if (activeOverlayType === 'start') {
+    if (activeOverlayType === 'start') {
       this.overlayPanel.width = this.compactLayout ? 980 : 940;
       this.overlayPanel.height = this.compactLayout ? 620 : 590;
       this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
-    } else if (activeOverlayType === 'turn') {
-      this.overlayPanel.width = this.compactLayout ? 660 : 620;
-      this.overlayPanel.height = this.compactLayout ? 330 : 300;
-      this.overlayPanel.y = GAME_HEIGHT * 0.5;
-      this.layoutTurnDialog();
-    } else if (activeOverlayType === 'gameover') {
-      this.overlayPanel.width = this.compactLayout ? 900 : 860;
-      this.overlayPanel.height = this.compactLayout ? 640 : 620;
-      this.overlayPanel.y = GAME_HEIGHT * 0.5;
-      this.layoutRoundOverDialog();
-      this.layoutRoundOverScroll(false);
+    } else if (this.isUnifiedDialogType(activeOverlayType)) {
+      this.layoutUnifiedDialog(false);
     } else {
       this.overlayPanel.width = this.compactLayout ? 940 : 860;
       this.overlayPanel.height = this.compactLayout ? 560 : 520;
@@ -1127,15 +1619,11 @@ export class UIScene extends Phaser.Scene {
     this.drawHpBars(this.displayHp[0], this.displayHp[1]);
     if (this.gameScene?.overlayState?.type === 'start') {
       this.updateOverlay(this.gameScene.overlayState);
-    } else if (this.gameScene?.overlayState?.type === 'help') {
-      this.layoutHelpDialog(false);
-    } else if (this.gameScene?.overlayState?.type === 'turn') {
-      this.layoutTurnDialog();
-    } else if (this.gameScene?.overlayState?.type === 'gameover') {
-      this.layoutRoundOverDialog();
-      this.layoutRoundOverScroll(false);
+    } else if (this.isUnifiedDialogType(this.gameScene?.overlayState?.type)) {
+      this.layoutUnifiedDialog(false);
     }
     this.updateOrientationGuard();
+    this.refreshShortcutButtons();
   }
 
   // ── Start screen decorative graphics ─────────────────────────────────────────
@@ -1278,6 +1766,7 @@ export class UIScene extends Phaser.Scene {
   // ── HUD update ────────────────────────────────────────────────────────────────
   updateHud(state) {
     if (!state) return;
+    this.lastHudState = state;
 
     if (state.isCpuTurn || state.gameOver) {
       this.timerBar.clear();
@@ -1365,22 +1854,29 @@ export class UIScene extends Phaser.Scene {
     this.centerText.setText(
       state.gameOver
         ? state.winner
-          ? `${state.winner} wins  |  Click/Tap or R for a new map`
-          : 'Draw  |  Click/Tap or R for a new map'
+          ? `${state.winner} wins  |  Click/Tap or (R) for a new map`
+          : 'Draw  |  Click/Tap or (R) for a new map'
         : `${state.mode}${weatherTag}${mutatorTag}${motionTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
     );
-    this.controlsText.setText(
-      state.gameOver
-        ? 'Click/Tap or R to restart  |  V Motion  |  H/Help'
-        : state.phase === 'move'
-          ? 'Move: ←/→ or click/tap ground  |  Skip: click/tap own tank or Space  |  V Motion  |  H/Help'
-          : 'Aim: mouse/touch or ↑↓  |  Power: wheel/drag or A/D/J/L  |  Fire: click/release/Space  |  V Motion'
-    );
+    if (state.gameOver) {
+      this.controlsText.setText('Click/Tap or (R) restart  |  (V) Motion  |  (H) Help');
+    } else if (state.phase === 'move') {
+      this.controlsText.setText([
+        'Move: (←)/(→)  |  End Move: (Space) Fire',
+        'Always: (V) Motion  |  (H) Help  |  (Q)/(E) Weapon'
+      ].join('\n'));
+    } else {
+      this.controlsText.setText([
+        'Power: (←)/(→)  |  Angle: (↑)/(↓)  |  Fire: (Space)',
+        'Always: (V) Motion  |  (H) Help  |  (Q)/(E) Weapon'
+      ].join('\n'));
+    }
     if (this.isTouchDevice) {
-      const canSwitch = !state.gameOver && state.phase === 'aim' && !state.isCpuTurn;
+      const canSwitch = !state.gameOver && !state.isCpuTurn;
       this.mobileWeaponButton.setAlpha(canSwitch ? 1 : 0.55);
       this.mobileHelpButton.setAlpha(1);
     }
+    this.refreshShortcutButtons();
   }
 
   // ── Overlay rendering ─────────────────────────────────────────────────────────
@@ -1390,6 +1886,7 @@ export class UIScene extends Phaser.Scene {
     const isTurn = Boolean(overlay && overlay.type === 'turn');
     const isGameOver = Boolean(overlay && overlay.type === 'gameover');
     const isHelp = Boolean(overlay && overlay.type === 'help');
+    const isUnified = isTurn || isGameOver || isHelp;
     this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
     this.tweens.killTweensOf(this.startOverlayContent);
 
@@ -1417,14 +1914,28 @@ export class UIScene extends Phaser.Scene {
       this.turnLayout = null;
       this.turnDialogCard.clear();
     }
+    if (!visible || !isUnified) {
+      this.dialogScrollY = 0;
+      this.dialogMaxScroll = 0;
+      this.dialogBodyBaseY = 0;
+      this.dialogLayout = null;
+      this.dialogDragPointerId = null;
+      this.dialogScrollbar.setVisible(false);
+      this.dialogScrollbar.clear();
+      this.dialogMaskGraphics.clear();
+      this.dialogScrollHitArea.setVisible(false);
+      this.overlayBody.clearMask();
+    }
 
     this.overlayShade.setVisible(visible);
     this.overlayPanel.setVisible(visible);
-    this.turnDialogCard.setVisible(visible && (isTurn || isGameOver));
+    this.turnDialogCard.setVisible(visible && isUnified);
     this.overlayTitle.setVisible(visible);
     this.overlayBody.setVisible(visible);
-    this.overlayScoreboard.setVisible(visible && !isStart && !isTurn && !isGameOver);
+    this.overlayScoreboard.setVisible(visible && !isStart && !isUnified);
     this.overlayPrompt.setVisible(visible);
+    this.dialogScrollHitArea.setVisible(visible && isUnified);
+    this.helpHtmlPane?.setVisible(false);
     this.startDeco.setVisible(isStart);
     this.startKicker.setVisible(isStart);
     this.startTagline.setVisible(isStart);
@@ -1452,10 +1963,15 @@ export class UIScene extends Phaser.Scene {
       this.overlayContent.forEach((item) => item.setAlpha(0));
       this.turnDialogCard.clear();
       this.gameoverScrollbar.clear();
+      this.dialogScrollbar.clear();
       this.startDeco.setAlpha(0);
       this.startOverlayContent.forEach((item) => item.setAlpha(0));
       this.helpLayout = null;
       this.turnLayout = null;
+      this.helpHtmlPane?.setVisible(false);
+      if (this.helpHtmlNode) {
+        this.helpHtmlNode.scrollTop = 0;
+      }
 
       // Restore HUD visibility
       this.panel.setVisible(true);
@@ -1466,16 +1982,25 @@ export class UIScene extends Phaser.Scene {
       this.windText.setVisible(true);
       this.objectiveText.setVisible(true);
       this.controlsText.setVisible(true);
+      this.refreshShortcutButtons();
       return;
     }
 
     // ── Populate text ──────────────────────────────────────────────────────────
     this.overlayTitle.setText(overlay.title ?? '');
-    const gameOverBody = isGameOver
-      ? [overlay.body ?? '', overlay.scoreboard ?? ''].filter(Boolean).join('\n\n')
+    const unifiedBody = isUnified
+      ? isHelp
+        ? this.buildHelpFallbackText(overlay)
+        : [overlay.body ?? '', isGameOver ? (overlay.scoreboard ?? '') : ''].filter(Boolean).join('\n\n')
       : overlay.body ?? '';
-    this.overlayBody.setText(gameOverBody);
-    this.overlayScoreboard.setText(isGameOver ? '' : (overlay.scoreboard ?? ''));
+    this.overlayBody.setText(unifiedBody);
+    this.overlayScoreboard.setText(isUnified ? '' : (overlay.scoreboard ?? ''));
+    if (isHelp) {
+      this.renderHelpHtmlContent(overlay);
+      const hasHelpHtml = Boolean(this.helpHtmlNode?.innerHTML?.trim());
+      this.helpHtmlPane?.setVisible(hasHelpHtml);
+      this.overlayBody.setVisible(!hasHelpHtml);
+    }
     this.overlayPrompt.setText(overlay.prompt ?? '');
     this.startKicker.setText(overlay.kicker ?? '');
     this.startTagline.setText(overlay.tagline ?? '');
@@ -1498,25 +2023,27 @@ export class UIScene extends Phaser.Scene {
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
     this.overlayTitle.setFontSize(
-      overlay.type === 'start' ? '78px' : (overlay.type === 'turn' || overlay.type === 'gameover') ? '36px' : '40px'
+      overlay.type === 'start' ? '78px' : isUnified ? (this.compactLayout ? '44px' : '52px') : '40px'
     );
     this.overlayTitle.setColor(overlay.type === 'start' ? '#f2b84b' : '#f4f1df');
     this.overlayPrompt.setColor(
       overlay.type === 'start'
         ? '#f4f1df'
-        : overlay.type === 'turn' || overlay.type === 'gameover'
-          ? '#f2b84b'
-          : '#f2b84b'
+        : '#f2b84b'
     );
     this.overlayPrompt.setFontSize(
-      overlay.type === 'start' ? '22px' : (overlay.type === 'turn' || overlay.type === 'gameover') ? '17px' : '20px'
+      overlay.type === 'start' ? '22px' : isUnified ? (this.compactLayout ? '18px' : '20px') : '20px'
     );
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
-    this.overlayBody.setAlign(isTurn ? 'center' : 'left');
+    this.overlayBody.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
+    this.overlayScoreboard.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
+    this.overlayBody.setAlign('left');
     if (overlay.type === 'help') {
       this.overlayBody.setColor('#f7f3e6');
       this.overlayScoreboard.setColor('#94f3ec');
+      this.overlayBody.setFontFamily('"Consolas", "Courier New", monospace');
+      this.overlayScoreboard.setFontFamily('"Consolas", "Courier New", monospace');
     }
     this.overlayShade.setFillStyle(0x04070a, isStart ? 1 : 0.72);
 
@@ -1543,8 +2070,8 @@ export class UIScene extends Phaser.Scene {
       this.objectiveText.setVisible(true);
       this.controlsText.setVisible(true);
     }
-    if (isTurn || isGameOver) {
-      // Turn and gameover overlays use the same dedicated opaque card graphics layer.
+    if (isUnified) {
+      // Unified turn/help/gameover dialogs render their own chrome layer.
       this.overlayPanel.setFillStyle(0x09131b, 0);
       this.overlayPanel.setStrokeStyle(0, 0xffffff, 0);
     } else {
@@ -1568,25 +2095,20 @@ export class UIScene extends Phaser.Scene {
     this.startOverlayContent.forEach((item) => { item.setAlpha(0); item.setScale(1); });
 
     // ── Panel size and positions ───────────────────────────────────────────────
-    this.overlayPanel.width = isStart
-      ? (this.compactLayout ? 980 : 940)
-      : isTurn
-        ? (this.compactLayout ? 660 : 620)
-        : isGameOver
-          ? (this.compactLayout ? 900 : 860)
-        : isHelp
-          ? (this.compactLayout ? 1020 : 1120)
-          : this.compactLayout ? 940 : 860;
-    this.overlayPanel.height = isStart
-      ? (this.compactLayout ? 620 : 590)
-      : isTurn
-        ? (this.compactLayout ? 330 : 300)
-        : isGameOver
-          ? (this.compactLayout ? 640 : 620)
-        : isHelp
-          ? (this.compactLayout ? 600 : 560)
-          : this.compactLayout ? 560 : 520;
-    this.overlayPanel.y = (isTurn || isGameOver) ? GAME_HEIGHT * 0.5 : GAME_HEIGHT * 0.5 + 16;
+    if (isStart) {
+      this.overlayPanel.width = this.compactLayout ? 980 : 940;
+      this.overlayPanel.height = this.compactLayout ? 620 : 590;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
+    } else if (isUnified) {
+      const layout = this.getUnifiedDialogLayout();
+      this.overlayPanel.width = layout.panel.width;
+      this.overlayPanel.height = layout.panel.height;
+      this.overlayPanel.y = layout.panel.y;
+    } else {
+      this.overlayPanel.width = this.compactLayout ? 940 : 860;
+      this.overlayPanel.height = this.compactLayout ? 560 : 520;
+      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
+    }
 
     if (isStart) {
       const startLayout = this.getStartOverlayLayout();
@@ -1643,36 +2165,14 @@ export class UIScene extends Phaser.Scene {
       this.startSwitchModeText.y = startLayout.linksY;
 
       this.drawStartDecor(startLayout);
+    } else if (isUnified) {
+      this.layoutUnifiedDialog(true);
     } else {
-      // Non-start overlays (turn, gameover, help)
-      const helpLayout = isHelp ? this.getHelpDialogLayout() : null;
-      if (isTurn) {
-        this.layoutTurnDialog();
-      } else if (isGameOver) {
-        this.layoutRoundOverDialog();
-      } else {
-        this.overlayTitle.y = GAME_HEIGHT * 0.5 - 188;
-        this.overlayBody.x = isHelp ? helpLayout.leftX : GAME_WIDTH * 0.5 - 360;
-        this.overlayScoreboard.x = isHelp ? helpLayout.rightX : GAME_WIDTH * 0.5 + 110;
-        this.overlayBody.setWordWrapWidth(
-          isHelp ? helpLayout.leftColumnWidth : this.compactLayout ? 470 : 420,
-          true
-        );
-        this.overlayScoreboard.setWordWrapWidth(
-          isHelp ? helpLayout.rightColumnWidth : this.compactLayout ? 310 : 270,
-          true
-        );
-        this.overlayPrompt.y = GAME_HEIGHT * 0.5 + 214;
-      }
-
-      if (isHelp) {
-        this.layoutHelpDialog(true);
-      } else if (isGameOver) {
-        this.layoutRoundOverScroll(true);
-      } else if (!isTurn && !isGameOver) {
-        this.overlayBody.y = GAME_HEIGHT * 0.5 - 128;
-        this.overlayScoreboard.y = GAME_HEIGHT * 0.5 - 128;
-      }
+      this.overlayTitle.y = GAME_HEIGHT * 0.5 - 188;
+      this.overlayBody.x = GAME_WIDTH * 0.5 - 360;
+      this.overlayBody.y = GAME_HEIGHT * 0.5 - 128;
+      this.overlayBody.setWordWrapWidth(this.compactLayout ? 470 : 420, true);
+      this.overlayPrompt.y = GAME_HEIGHT * 0.5 + 214;
     }
 
     // ── Fade-in animations ─────────────────────────────────────────────────────
@@ -1680,7 +2180,7 @@ export class UIScene extends Phaser.Scene {
     this.tweens.add(
       isStart
         ? { targets: this.overlayContent, alpha: 1, duration: 220, ease: 'Cubic.Out', stagger: 20 }
-        : (isTurn || isGameOver)
+        : isUnified
           ? { targets: this.overlayContent, alpha: 1, duration: 220, ease: 'Cubic.Out', stagger: 20 }
           : { targets: this.overlayContent, alpha: 1, y: '-=16', duration: 220, ease: 'Cubic.Out', stagger: 20 }
     );
@@ -1697,6 +2197,7 @@ export class UIScene extends Phaser.Scene {
       this.tweens.add({ targets: this.startModeBacking, scaleX: 1.02, scaleY: 1.02, yoyo: true, repeat: -1, duration: 1400, ease: 'Sine.InOut' });
       this.tweens.add({ targets: this.startActionBacking, alpha: 0.34, yoyo: true, repeat: -1, duration: 920, ease: 'Sine.InOut' });
     }
+    this.refreshShortcutButtons();
   }
 
   // ── Timer bars ────────────────────────────────────────────────────────────────
