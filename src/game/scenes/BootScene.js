@@ -4,6 +4,11 @@ import { GAME_HEIGHT, GAME_WIDTH } from '../constants.js';
 import { SCENE_KEYS } from '../config/sceneContracts.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
 import { playTitleSong, setTitleSongSource, stopTitleSong } from '../systems/TitleSongManager.js';
+import {
+  getBootPreferenceViewModel,
+  isBootGameSceneReady,
+  toggleBootPreference
+} from './bootSceneModel.js';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -278,10 +283,12 @@ export class BootScene extends Phaser.Scene {
   }
 
   togglePreference(key) {
-    if (!(key in this.startPreferences)) {
+    const nextPreferences = toggleBootPreference(this.startPreferences, key);
+    if (nextPreferences === this.startPreferences) {
       return;
     }
-    this.startPreferences[key] = !this.startPreferences[key];
+
+    this.startPreferences = nextPreferences;
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
     this.playUiPing({
       frequency: key === 'sound' ? 560 : 430,
@@ -299,18 +306,17 @@ export class BootScene extends Phaser.Scene {
   }
 
   updatePreferenceLabels() {
-    const fullscreenOn = this.startPreferences.fullscreen;
-    const soundOn = this.startPreferences.sound;
+    const model = getBootPreferenceViewModel(this.startPreferences);
 
-    this.fullscreenText.setText(`(F) Fullscreen: ${fullscreenOn ? 'ON' : 'OFF'}`);
-    this.soundText.setText(`(S) Sound: ${soundOn ? 'ON' : 'OFF'}`);
+    this.fullscreenText.setText(model.fullscreenText);
+    this.soundText.setText(model.soundText);
 
-    this.fullscreenButton.setFillStyle(fullscreenOn ? 0x183e53 : 0x17222c, 0.9);
-    this.fullscreenButton.setStrokeStyle(1.5, 0x7fe7dc, fullscreenOn ? 0.34 : 0.16);
-    this.soundButton.setFillStyle(soundOn ? 0x3f311e : 0x1f252c, 0.9);
-    this.soundButton.setStrokeStyle(1.5, 0xf2b84b, soundOn ? 0.34 : 0.16);
-    this.fullscreenText.setColor(fullscreenOn ? '#dff9f5' : '#a0b4bf');
-    this.soundText.setColor(soundOn ? '#ffe3b2' : '#acaba1');
+    this.fullscreenButton.setFillStyle(model.fullscreenFill, 0.9);
+    this.fullscreenButton.setStrokeStyle(1.5, 0x7fe7dc, model.fullscreenStrokeAlpha);
+    this.soundButton.setFillStyle(model.soundFill, 0.9);
+    this.soundButton.setStrokeStyle(1.5, 0xf2b84b, model.soundStrokeAlpha);
+    this.fullscreenText.setColor(model.fullscreenTextColor);
+    this.soundText.setColor(model.soundTextColor);
   }
 
   startFromBoot() {
@@ -357,12 +363,7 @@ export class BootScene extends Phaser.Scene {
 
   applyPreferencesToGameScene(attempt = 0) {
     const gameScene = this.scene.get(SCENE_KEYS.GAME);
-    const ready = Boolean(
-      gameScene &&
-      gameScene.players &&
-      typeof gameScene.setStartPreference === 'function' &&
-      typeof gameScene.applyStartPreferences === 'function'
-    );
+    const ready = isBootGameSceneReady(gameScene);
     if (!ready) {
       if (attempt < 12) {
         setTimeout(() => this.applyPreferencesToGameScene(attempt + 1), 16);

@@ -281,9 +281,9 @@ export class AudioManager {
     }
     const amount = Math.max(0, Math.min(1, intensity));
     const now = this.context.currentTime;
-    const targetNoise = active ? 0.001 + amount * 0.0024 : 0.0001;
-    const targetTone = active ? 0.0003 + amount * 0.0009 : 0.0001;
-    const targetPulse = active ? 0.0005 + amount * 0.00065 : 0.0002;
+    const targetNoise = active ? 0.00135 + amount * 0.0031 : 0.0001;
+    const targetTone = active ? 0.00042 + amount * 0.00115 : 0.0001;
+    const targetPulse = active ? 0.00072 + amount * 0.0009 : 0.0002;
     const pulseFreq = active ? 8 + amount * 9 : 5;
     const toneFreq = active ? 36 + amount * 26 : 30;
     const bandFreq = active ? 150 + amount * 230 : 130;
@@ -342,18 +342,18 @@ export class AudioManager {
       to: isMortar ? 90 : isSplit ? 130 : isBouncer ? 120 : 110,
       duration: isMortar ? 0.14 : 0.1,
       type: isMortar ? 'sawtooth' : 'square',
-      gain: isMortar ? 0.065 : 0.055
+      gain: isMortar ? 0.076 : 0.064
     });
     this.tone({
       frequency: isSplit ? 430 : 520,
       duration: 0.045,
       type: 'triangle',
-      gain: 0.024,
+      gain: 0.03,
       delay: 0.01
     });
     this.noiseBurst({
       duration: isMortar ? 0.11 : 0.08,
-      gain: isMortar ? 0.035 : 0.028,
+      gain: isMortar ? 0.044 : 0.034,
       highpass: isMortar ? 220 : 380,
       lowpass: isMortar ? 1800 : 2600,
       delay: 0.004
@@ -369,25 +369,25 @@ export class AudioManager {
       to: 42,
       duration: 0.26 * heavy,
       type: 'sawtooth',
-      gain: 0.08 * heavy
+      gain: 0.094 * heavy
     });
     this.sweep({
       from: 96,
       to: 30,
       duration: 0.34 * heavy,
       type: 'triangle',
-      gain: 0.055 * heavy,
+      gain: 0.065 * heavy,
       delay: 0.018
     });
     this.noiseBurst({
       duration: 0.22 * heavy,
-      gain: 0.05 * heavy,
+      gain: 0.06 * heavy,
       highpass: 80,
       lowpass: 1400 + radius * 10
     });
     this.noiseBurst({
       duration: 0.12 * heavy,
-      gain: 0.032 * heavy,
+      gain: 0.039 * heavy,
       highpass: 260,
       lowpass: 2400,
       delay: 0.03
@@ -399,13 +399,13 @@ export class AudioManager {
       frequency: 420 + Math.min(180, damage * 2),
       duration: 0.07,
       type: 'square',
-      gain: 0.022
+      gain: 0.028
     });
   }
 
   playBounce() {
-    this.tone({ frequency: 340, duration: 0.05, type: 'triangle', gain: 0.03 });
-    this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.022, delay: 0.04 });
+    this.tone({ frequency: 340, duration: 0.05, type: 'triangle', gain: 0.036 });
+    this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.028, delay: 0.04 });
   }
 
   playTurn() {

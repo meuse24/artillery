@@ -938,7 +938,10 @@ export class UIScene extends Phaser.Scene {
   }
 
   getUnifiedDialogLayout() {
-    this.dialogLayout = this.dialogLayoutModule.compute({ compact: this.compactLayout });
+    this.dialogLayout = this.dialogLayoutModule.compute({
+      compact: this.compactLayout,
+      type: this.gameScene?.overlayState?.type ?? 'default'
+    });
     return this.dialogLayout;
   }
 
@@ -1071,12 +1074,17 @@ export class UIScene extends Phaser.Scene {
     const headerH = layout.header.height;
     const footerH = layout.footer.height;
 
-    this.turnDialogCard.fillStyle(0x061522, 0.98);
+    const isTurnOverlay = overlayType === 'turn';
+    const shellAlpha = isTurnOverlay ? 0.84 : 0.98;
+    const headerAlpha = isTurnOverlay ? 0.72 : 0.98;
+    const footerAlpha = isTurnOverlay ? 0.68 : 0.94;
+
+    this.turnDialogCard.fillStyle(0x061522, shellAlpha);
     this.turnDialogCard.fillRoundedRect(x, y, w, h, 14);
     this.turnDialogCard.lineStyle(2, 0xffffff, 0.14);
     this.turnDialogCard.strokeRoundedRect(x, y, w, h, 14);
 
-    this.turnDialogCard.fillStyle(0x0d2635, 0.98);
+    this.turnDialogCard.fillStyle(0x0d2635, headerAlpha);
     this.turnDialogCard.fillRoundedRect(x + 1, y + 1, w - 2, headerH, 12);
     this.turnDialogCard.lineStyle(1, 0xffffff, 0.16);
     this.turnDialogCard.beginPath();
@@ -1084,7 +1092,7 @@ export class UIScene extends Phaser.Scene {
     this.turnDialogCard.lineTo(x + w - 18, y + headerH);
     this.turnDialogCard.strokePath();
 
-    this.turnDialogCard.fillStyle(0x0a1b28, 0.94);
+    this.turnDialogCard.fillStyle(0x0a1b28, footerAlpha);
     this.turnDialogCard.fillRoundedRect(x + 1, y + h - footerH - 1, w - 2, footerH, 10);
   }
 
@@ -1534,9 +1542,7 @@ export class UIScene extends Phaser.Scene {
 
   startFromOverlay() {
     if (!this.gameScene || this.gameScene.overlayState?.type !== 'start') return;
-    this.gameScene.clearOverlay();
-    this.gameScene.presentTurnOverlay();
-    this.gameScene.syncHud();
+    this.gameScene.startBattleFromStartOverlay();
   }
 
   drawHpBars(left, right) {
@@ -2023,7 +2029,13 @@ export class UIScene extends Phaser.Scene {
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
     this.overlayTitle.setFontSize(
-      overlay.type === 'start' ? '78px' : isUnified ? (this.compactLayout ? '44px' : '52px') : '40px'
+      overlay.type === 'start'
+        ? '78px'
+        : isTurn
+          ? (this.compactLayout ? '34px' : '38px')
+          : isUnified
+            ? (this.compactLayout ? '44px' : '52px')
+            : '40px'
     );
     this.overlayTitle.setColor(overlay.type === 'start' ? '#f2b84b' : '#f4f1df');
     this.overlayPrompt.setColor(
@@ -2032,8 +2044,16 @@ export class UIScene extends Phaser.Scene {
         : '#f2b84b'
     );
     this.overlayPrompt.setFontSize(
-      overlay.type === 'start' ? '22px' : isUnified ? (this.compactLayout ? '18px' : '20px') : '20px'
+      overlay.type === 'start'
+        ? '22px'
+        : isTurn
+          ? (this.compactLayout ? '15px' : '16px')
+          : isUnified
+            ? (this.compactLayout ? '18px' : '20px')
+            : '20px'
     );
+    this.overlayBody.setFontSize(isTurn ? (this.compactLayout ? '15px' : '16px') : '17px');
+    this.overlayBody.setLineSpacing(isTurn ? 5 : 7);
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
     this.overlayBody.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
@@ -2045,7 +2065,7 @@ export class UIScene extends Phaser.Scene {
       this.overlayBody.setFontFamily('"Consolas", "Courier New", monospace');
       this.overlayScoreboard.setFontFamily('"Consolas", "Courier New", monospace');
     }
-    this.overlayShade.setFillStyle(0x04070a, isStart ? 1 : 0.72);
+    this.overlayShade.setFillStyle(0x04070a, isStart ? 1 : isTurn ? 0.54 : 0.72);
 
     if (isStart) {
       // Hide game HUD elements while on the start screen

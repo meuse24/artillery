@@ -1,4 +1,10 @@
 import Phaser from 'phaser';
+import {
+  colorToRgba,
+  isSolidAt,
+  pickTerrainPreset,
+  rebuildSurfaceRangeFromPixels
+} from './terrainModel.js';
 
 export class Terrain {
   constructor(scene, width, height, key = 'terrain') {
@@ -23,8 +29,7 @@ export class Terrain {
 
   generate(preset) {
     // Pick a random preset if not specified
-    const presets = ['standard', 'valley', 'fortress', 'chaos'];
-    this.preset = preset ?? presets[Phaser.Math.Between(0, presets.length - 1)];
+    this.preset = pickTerrainPreset(preset, Phaser.Math.Between(0, 3));
 
     // Terrain is stored on a canvas so rendering and crater carving stay in sync.
     const { width, height, ctx } = this;
@@ -173,26 +178,14 @@ export class Terrain {
   }
 
   rebuildSurfaceRange(minX = 0, maxX = this.width - 1) {
-    const start = Phaser.Math.Clamp(Math.floor(minX), 0, this.width - 1);
-    const end = Phaser.Math.Clamp(Math.ceil(maxX), 0, this.width - 1);
-
-    for (let x = start; x <= end; x += 1) {
-      let found = this.height - 1;
-      for (let y = 0; y < this.height; y += 1) {
-        if (this.isSolid(x, y)) {
-          found = y;
-          break;
-        }
-      }
-      this.surfaceY[x] = found;
-    }
-  }
-
-  colorToRgba(color, alpha) {
-    const r = (color >> 16) & 255;
-    const g = (color >> 8) & 255;
-    const b = color & 255;
-    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    rebuildSurfaceRangeFromPixels(
+      this.surfaceY,
+      this.pixels,
+      this.width,
+      this.height,
+      minX,
+      maxX
+    );
   }
 
   drawJaggedCraterPath(x, y, radius, options = {}) {
@@ -309,8 +302,8 @@ export class Terrain {
   }
 
   stampImpactDecal(x, y, radius, weapon) {
-    const ring = this.colorToRgba(weapon.explosionRing, 0.22);
-    const core = this.colorToRgba(weapon.explosionCore, 0.16);
+    const ring = colorToRgba(weapon.explosionRing, 0.22);
+    const core = colorToRgba(weapon.explosionCore, 0.16);
     const soot = 'rgba(26, 18, 12, 0.34)';
 
     this.ctx.save();
@@ -341,7 +334,7 @@ export class Terrain {
       const px = x + Phaser.Math.FloatBetween(-radius * 1.05, radius * 1.05);
       const py = y + Phaser.Math.FloatBetween(-radius * 0.7, radius * 0.95);
       this.ctx.fillStyle = Phaser.Math.RND.pick([
-        this.colorToRgba(weapon.explosionRing, 0.14),
+        colorToRgba(weapon.explosionRing, 0.14),
         'rgba(40, 27, 18, 0.2)',
         'rgba(235, 196, 128, 0.08)'
       ]);
@@ -353,13 +346,7 @@ export class Terrain {
   }
 
   isSolid(x, y) {
-    const ix = Math.round(x);
-    const iy = Math.round(y);
-    if (ix < 0 || ix >= this.width || iy < 0 || iy >= this.height) {
-      return false;
-    }
-
-    return this.pixels[(iy * this.width + ix) * 4 + 3] > 12;
+    return isSolidAt(this.pixels, this.width, this.height, x, y);
   }
 
   getSurfaceY(x) {

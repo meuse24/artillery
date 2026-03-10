@@ -1,4 +1,5 @@
 import Phaser from 'phaser';
+import battleSongUrl from '../../../main.ogg?url';
 import {
   AIM_TIME_LIMIT,
   AIM_SPEED,
@@ -27,13 +28,16 @@ import { OverlayStateSystem } from '../systems/OverlayStateSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
+import { playBattleSong, setBattleSongSource, stopBattleSong } from '../systems/BattleSongManager.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
 import { playTitleSong, stopTitleSong } from '../systems/TitleSongManager.js';
 import { InputController } from '../systems/InputController.js';
 import { VisualFxPool } from '../systems/VisualFxPool.js';
+import { getNextActivePlayerIndex, getNextWeaponIndex } from '../systems/gameplayLogic.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
+import { resolveBackgroundMusicState } from './backgroundMusicModel.js';
 
 const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
 const ROUND_STAT_TEMPLATE = () => ({
@@ -60,6 +64,7 @@ export class GameScene extends Phaser.Scene {
 
   setupCoreSystems() {
     this.audioManager = new AudioManager();
+    setBattleSongSource(battleSongUrl);
     this.scoreStore = new ScoreStore(PLAYER_NAMES);
     this.highscores = this.scoreStore.load();
     this.arcadeConfig = ARCADE_CONFIG;
@@ -107,6 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.touchAimState = null;
     this.mobileFullscreenRequested = false;
     this.pointerInputBlockUntil = 0;
+    this.battleMusicActive = false;
   }
 
   blockPointerInput(durationMs = 160) {
@@ -215,6 +221,7 @@ export class GameScene extends Phaser.Scene {
       this.fxPool.destroy();
       this.fxPool = null;
     }
+    stopBattleSong();
     this.overlaySystem = null;
   }
 
@@ -385,9 +392,11 @@ export class GameScene extends Phaser.Scene {
     if (this.audioEnabled) {
       this.audioManager?.unlock();
       this.audioManager?.setWind(this.wind ?? 0);
+      this.syncTitleMusicState(this.overlayState);
     } else {
       this.audioManager?.setDrive(false, 0);
       stopTitleSong();
+      stopBattleSong();
     }
   }
 
@@ -484,14 +493,14 @@ export class GameScene extends Phaser.Scene {
   }
 
   cycleWeapon(player, direction) {
-    let next = player.weaponIndex;
-    for (let i = 0; i < WEAPONS.length; i += 1) {
-      next = ((next + direction) % WEAPONS.length + WEAPONS.length) % WEAPONS.length;
-      if (player.getAmmo(WEAPONS[next].id) > 0) {
-        player.setWeaponIndex(next);
-        return;
-      }
-    }
+    player.setWeaponIndex(
+      getNextWeaponIndex(
+        player.weaponIndex,
+        direction,
+        WEAPONS,
+        (weaponId) => player.getAmmo(weaponId)
+      )
+    );
   }
 
   createRoundStats() {
@@ -777,6 +786,8 @@ export class GameScene extends Phaser.Scene {
 
   startMatch({ showTurnOverlay = true } = {}) {
     this.clearProjectiles();
+    this.battleMusicActive = showTurnOverlay;
+    stopBattleSong({ reset: true });
 
     if (this.players) {
       this.players.forEach((player) => player.destroy());
@@ -933,14 +944,32 @@ export class GameScene extends Phaser.Scene {
   }
 
   syncTitleMusicState(overlay = this.overlayState) {
-    const shouldPlay =
-      Boolean(this.startPreferences?.sound) &&
-      (overlay?.type === 'start' || overlay?.type === 'help' || overlay?.type === 'gameover');
-    if (shouldPlay) {
+    const musicState = resolveBackgroundMusicState({
+      soundEnabled: Boolean(this.startPreferences?.sound),
+      battleActive: this.battleMusicActive,
+      gameOver: Boolean(this.gameOver),
+      overlayType: overlay?.type ?? null,
+      previousOverlayType: overlay?.previousOverlay?.type ?? null
+    });
+
+    if (musicState.title) {
+      stopBattleSong();
       playTitleSong();
+    } else if (musicState.battle) {
+      stopTitleSong();
+      playBattleSong();
     } else {
       stopTitleSong();
+      stopBattleSong();
     }
+  }
+
+  startBattleFromStartOverlay() {
+    this.battleMusicActive = true;
+    stopBattleSong({ reset: true });
+    this.clearOverlay();
+    this.presentTurnOverlay();
+    this.syncHud();
   }
 
   showStartOverlay() {
@@ -1280,8 +1309,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.overlayState.type === 'start' && advance) {
-      this.clearOverlay();
-      this.presentTurnOverlay();
+      this.startBattleFromStartOverlay();
       return;
     }
 
@@ -2163,6 +2191,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.gameOver = true;
+    this.battleMusicActive = false;
     this.resolving = false;
     this.turnPending = false;
     this.winner = living[0] ?? null;
@@ -2194,10 +2223,7 @@ export class GameScene extends Phaser.Scene {
     });
 
     this.turnNumber += 1;
-    this.turnIndex = (this.turnIndex + 1) % this.players.length;
-    if (!this.getActivePlayer().isAlive()) {
-      this.turnIndex = (this.turnIndex + 1) % this.players.length;
-    }
+    this.turnIndex = getNextActivePlayerIndex(this.players, this.turnIndex);
 
     this.remainingMove = MOVE_PER_TURN;
     this.turnPhase = 'move';
@@ -2362,6 +2388,7 @@ export class GameScene extends Phaser.Scene {
     const moveTimer = this.moveTimer ?? MOVE_TIME_LIMIT;
     const aimTimer = this.aimTimer ?? AIM_TIME_LIMIT;
     const activeTimer = this.turnPhase === 'move' ? moveTimer : aimTimer;
+    const players = Array.isArray(this.players) ? this.players : [];
 
     return {
       activePlayerIndex: this.turnIndex,
@@ -2375,7 +2402,7 @@ export class GameScene extends Phaser.Scene {
       windEffect: this.getWindEffectText(),
       turnNumber: this.turnNumber ?? 1,
       remainingMove: this.remainingMove,
-      players: this.players.map((player) => {
+      players: players.map((player) => {
         const w = getWeapon(player.weaponIndex);
         const ammoCount = player.getAmmo(w.id);
         const ammoText = w.ammo === null ? '' : ` (${ammoCount === Infinity ? '∞' : ammoCount})`;
@@ -2400,6 +2427,73 @@ export class GameScene extends Phaser.Scene {
       mutator: this.mutatorSystem?.getHudLabel() ?? '',
       reducedMotion: this.reducedMotion,
       arcade: this.arcadeScoring?.getSnapshot() ?? { players: {} }
+    };
+  }
+
+  getAutomationState() {
+    const activePlayer = this.getActivePlayer();
+    const hud = this.getHudState();
+
+    return {
+      coordinateSystem: 'origin top-left; +x right; +y down',
+      scene: SCENE_KEYS.GAME,
+      overlay: this.overlayState
+        ? {
+          type: this.overlayState.type ?? null,
+          title: this.overlayState.title ?? '',
+          prompt: this.overlayState.prompt ?? ''
+        }
+        : null,
+      mode: this.currentMode,
+      turn: {
+        number: this.turnNumber ?? 0,
+        phase: this.turnPhase ?? null,
+        activePlayer: activePlayer?.name ?? null,
+        isCpuTurn: this.isCpuControlledPlayer(),
+        moveRemaining: this.remainingMove ?? 0,
+        moveTimer: this.moveTimer ?? 0,
+        aimTimer: this.aimTimer ?? 0
+      },
+      wind: {
+        value: Number((this.wind ?? 0).toFixed(2)),
+        direction: this.getWindDirectionLabel(),
+        strength: this.getWindStrengthLabel(),
+        effect: this.getWindEffectText()
+      },
+      weather: this.weather?.getLabel() ?? '',
+      gameOver: Boolean(this.gameOver),
+      winner: this.winner?.name ?? null,
+      players: (this.players ?? []).map((player) => {
+        const weapon = getWeapon(player.weaponIndex);
+        const ammo = player.getAmmo(weapon.id);
+        return {
+          name: player.name,
+          x: Number(player.x.toFixed(1)),
+          y: Number(player.y.toFixed(1)),
+          hp: player.hp,
+          pitch: Number(player.pitch.toFixed(1)),
+          power: Number(player.power.toFixed(1)),
+          facing: player.facing,
+          alive: player.isAlive(),
+          weapon: weapon.id,
+          ammo: ammo === Infinity ? 'infinity' : ammo
+        };
+      }),
+      projectiles: (this.projectiles ?? []).map((projectile) => ({
+        weapon: projectile.weapon.id,
+        x: Number(projectile.x.toFixed(1)),
+        y: Number(projectile.y.toFixed(1)),
+        vx: Number(projectile.vx.toFixed(1)),
+        vy: Number(projectile.vy.toFixed(1)),
+        bouncesLeft: projectile.bouncesLeft ?? 0
+      })),
+      hud: {
+        activePlayerName: hud.activePlayerName,
+        objective: hud.objective,
+        players: hud.players,
+        mutator: hud.mutator,
+        reducedMotion: hud.reducedMotion
+      }
     };
   }
 

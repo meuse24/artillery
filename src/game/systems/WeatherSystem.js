@@ -1,5 +1,13 @@
 import Phaser from 'phaser';
 import { GAME_WIDTH, GAME_HEIGHT } from '../constants.js';
+import {
+  WEATHER_CONDITIONS,
+  advanceRainDrops,
+  applyStormWindRule,
+  getWeatherGravityModifier,
+  getWeatherLabel,
+  pickWeatherCondition
+} from './weatherModel.js';
 
 // WeatherSystem manages one optional weather condition per match.
 // Conditions: 'none', 'rain', 'fog', 'storm'
@@ -7,7 +15,7 @@ import { GAME_WIDTH, GAME_HEIGHT } from '../constants.js';
 // - fog:   semi-transparent overlay shrinks visible range
 // - storm: wind changes each shot turn
 export class WeatherSystem {
-  static CONDITIONS = ['none', 'none', 'rain', 'fog', 'storm']; // 'none' weighted twice
+  static CONDITIONS = WEATHER_CONDITIONS;
 
   constructor(scene) {
     this.scene = scene;
@@ -19,9 +27,9 @@ export class WeatherSystem {
   }
 
   rollCondition() {
-    this.condition = WeatherSystem.CONDITIONS[
+    this.condition = pickWeatherCondition(
       Phaser.Math.Between(0, WeatherSystem.CONDITIONS.length - 1)
-    ];
+    );
     return this.condition;
   }
 
@@ -83,37 +91,31 @@ export class WeatherSystem {
   }
 
   tickRain(dt, wind) {
-    const windPush = wind * 0.12;
-    this.rainDrops.forEach((drop) => {
-      drop.x += (drop.drift + windPush) * dt;
-      drop.y += drop.vel * dt;
-      if (drop.y > GAME_HEIGHT + 20) {
-        drop.y = Phaser.Math.Between(-60, -8);
-        drop.x = Phaser.Math.Between(0, GAME_WIDTH);
-      }
-      if (drop.x > GAME_WIDTH + 10) drop.x = -10;
-      if (drop.x < -10) drop.x = GAME_WIDTH + 10;
+    advanceRainDrops(this.rainDrops, dt, wind, {
+      randomBetween: Phaser.Math.Between,
+      gameWidth: GAME_WIDTH,
+      gameHeight: GAME_HEIGHT
     });
   }
 
   // Returns gravity multiplier for this weather
   gravityModifier() {
-    return this.condition === 'rain' ? 1.12 : 1;
+    return getWeatherGravityModifier(this.condition);
   }
 
   // Called by GameScene when the wind is re-rolled each turn
   // Storm weather re-randomises wind even harder
   applyStormWind(currentWind, windLimit) {
-    if (this.condition !== 'storm') {
-      return currentWind;
-    }
-    // Storm: random full-range wind each turn
-    return Phaser.Math.FloatBetween(-windLimit, windLimit);
+    return applyStormWindRule(
+      this.condition,
+      currentWind,
+      windLimit,
+      Phaser.Math.FloatBetween
+    );
   }
 
   getLabel() {
-    const labels = { none: '', rain: 'Rain', fog: 'Fog', storm: 'Storm' };
-    return labels[this.condition] ?? '';
+    return getWeatherLabel(this.condition);
   }
 
   destroy() {

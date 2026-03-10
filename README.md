@@ -59,7 +59,7 @@ Zusatz-Flow:
   - klickbare Moduswahl
   - Highscore als zwei Spieler-Karten
   - klarer Start-Call-to-Action
-- Overlay beim Spielerwechsel
+- kompakter Overlay beim Spielerwechsel mit leichter Transparenz
 - ausfuehrlicher Help-Screen
 - Game-Over-Screen mit Sieger und Rundenstatistiken
 
@@ -159,8 +159,9 @@ Das Spiel verwendet ein kleines generiertes Web-Audio-System statt externer Soun
 - Explosionen
 - Trefferfeedback
 - Titelsong (als externe OGG-Datei, dezent abgemischt)
+- Battle-Loop `main.ogg` waehrend des eigentlichen Matches bis `Game Over`, inklusive Spielerwechsel-Dialogen
 
-Die Lautstaerke ist auf ein ausgewogenes Verhaeltnis zwischen Hintergrundmusik und aktiven Spielsounds optimiert.
+Die Lautstaerke ist auf ein ausgewogenes Verhaeltnis zwischen leisem Hintergrund-Loop und deutlich hoerbaren Bewegungs-, Schuss- und Treffer-Sounds optimiert.
 
 Wichtiger Browser-Hinweis:
 
@@ -181,6 +182,7 @@ Beim ersten Laden erscheint ein eigenstaendiger Boot-Screen:
 ```bash
 npm install
 npm run lint
+npm test
 npm run dev
 ```
 
@@ -199,7 +201,13 @@ Optional zum Testen des Produktions-Builds:
 
 ```bash
 npm run preview
+npm run test:live
 ```
+
+Test-Workflow:
+
+- `npm test`: schnelle Unit-Tests fuer pure Spiel- und UI-Logik
+- `npm run test:live`: Browser-Smoke-Test ueber Playwright gegen den Produktions-Build
 
 ## Features
 
@@ -215,7 +223,7 @@ npm run preview
 - Wind als echter Gameplay-Faktor
 - Flugbahn-Vorschau in der Aim-Phase (Bouncer: Aufprallpunkt-Indikator)
 - Startscreen mit klickbarer Moduswahl, Score-Karten und CTA
-- einheitliches Dialogsystem fuer Turn-Handoff, Help und Game-Over (zentriert, gleiches Raster, Header/Text/Footer)
+- einheitliches Dialogsystem fuer Turn-Handoff, Help und Game-Over; Spielerwechsel-Dialoge bewusst kompakter und leicht transparent
 - Help-Screen mit HTML-Controls-Tabelle und scrollbarem Textbereich (Mausrad, Pfeiltasten, Swipe/Drag)
 - CPU-Gegner mit ballistischer Zielsuche, Fehlerkorrektur und situativer Waffenwahl
 - Rundenstatistiken und persistenter Highscore via `localStorage`
@@ -249,8 +257,13 @@ npm run preview
 - `src/game/scenes/UIScene.js`
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
   - einheitliches Dialog-Rendering fuer Turn-/Help-/GameOver inklusive Header/Text/Footer-Bereichen
+  - Turn-Handoff-Dialoge verwenden ein eigenes kompakteres Layout mit reduzierter Abdunklung
   - Help-Overlay mit HTML-Controls-Tabelle im scrollbaren DOM-Panel + Fallback-Textmodus
   - Dialog-Scrolling ueber Mausrad, Pfeiltasten/PageUp/PageDown/Home/End sowie Touch-/Mouse-Drag
+- `src/game/scenes/backgroundMusicModel.js`
+  - pure Regelmatrix fuer Umschaltung zwischen Titelmusik, Battle-Loop und Stille
+- `src/game/scenes/bootSceneModel.js`
+  - pure Helper fuer Boot-Preferences, UI-State und Scene-Readiness
 - `src/game/config/sceneContracts.js`
   - zentrale Scene-Keys (`boot/game/ui`) und Game->UI Event-Namen (`hud:update`, `overlay:update`, ...)
 - `src/game/arcade/arcadeConfig.js`
@@ -278,6 +291,8 @@ npm run preview
   - Waffenprofile fuer Mechanik, Munitionslimits und VFX/SFX-Identity
 - `src/game/systems/AudioManager.js`
   - Web-Audio-Synthese, dezente Wind-Ambience, Bouncer-Sound und Audio-Unlock nach User-Geste
+- `src/game/systems/BattleSongManager.js`
+  - verwaltet den leisen Battle-Loop als externes OGG-Audioelement
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
 - `src/game/systems/InputController.js`
@@ -291,7 +306,16 @@ npm run preview
 - `src/game/ui/OrientationGuard.js`
   - kapselt Portrait/Landscape-Guard inkl. Pause/Resume-Logik
 - `src/game/ui/DialogLayoutModule.js`
-  - zentrale Layout-Berechnung fuer das einheitliche 80%-Dialograster (Panel/Header/Text/Footer + Scrollbar-Spur)
+  - zentrale Layout-Berechnung fuer Unified-Dialoge; Turn-Overlays koennen kompakter als Help/GameOver gerendert werden
+
+## Testen
+
+- `test/**/*.test.js`
+  - Unit-Tests fuer Waffen, Persistence, Event-Bus, Mutatoren, Telemetrie, Wetter, Terrain, Waffenwahl, Spielerwechsel, Overlay-/Boot-Modelle, Audio-Music-State und UI-Helfer
+- `tools/live-smoke-test.js`
+  - startet den Produktions-Build lokal und prueft Bootscreen, Start-Overlay und Gameplay/Turn-Handoff im Browser
+- `output/live-smoke/`
+  - enthaelt Screenshots und `render_game_to_text`-Artefakte aus dem letzten Live-Test
 
 ## Technische Hinweise
 

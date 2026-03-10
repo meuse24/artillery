@@ -1,0 +1,26 @@
+Original prompt: verwende den skill develop-web-game und prüfe das game.
+
+- 2026-03-09: Skill `develop-web-game` geladen und Repo geprüft.
+- 2026-03-09: `progress.md` angelegt, damit Prüfschritte und Findings nachvollziehbar bleiben.
+- 2026-03-09: Test-Hooks ergänzt: `window.render_game_to_text`, `window.advanceTime`, kompakter `GameScene`-Stateexport.
+- 2026-03-09: `npm run lint` und `npm run build` erfolgreich. Build-Warnung: großes JS-Bundle (>500 kB), aber kein Fehler.
+- TODO: Browser-Hooks (`render_game_to_text`, `advanceTime`) exponieren und Playwright-Lauf gegen Bootscreen + Gameplay fahren.
+- 2026-03-10: Node-basiertes Test-Setup mit `node:test` ergänzt (`npm test`).
+- 2026-03-10: Logiktests für `weapons`, `ScoreStore`, `LaunchPreferencesStore`, `ArcadeEventBus`, `MutatorSystem`, `TelemetrySystem` und `ArcadeScoringSystem` hinzugefügt.
+- 2026-03-10: ESLint-Konfiguration erweitert, damit `tools/**`, `test/**` und `test-support/**` mit Node-Globals geprüft werden.
+- 2026-03-10: Verifikation erfolgreich: `npm test`, `npm run lint`, `npm run build`.
+- 2026-03-10: Weitere testbare Modelle aus Phaser-gebundener Logik extrahiert: `weatherModel`, `terrainModel`, `gameplayLogic`.
+- 2026-03-10: Zusätzliche Tests für Wetterregeln, Terrain-Oberflächenscan, Waffenwahl, Spielerwechsel und Demo-/Startscreen-Overlay ergänzt.
+- 2026-03-10: Verifikation erneut erfolgreich: 33 Tests grün, `npm run lint` grün, `npm run build` grün.
+- 2026-03-10: Boot-/UI-nahe Testabdeckung erweitert: `OrientationGuard`, `MobileControls` und Boot-Preference-Logik (`bootSceneModel`).
+- 2026-03-10: `BootScene` verwendet jetzt kleine pure Helper für Preference-Toggle, UI-State und GameScene-Readiness.
+- 2026-03-10: Verifikation erneut erfolgreich: 41 Tests grün, `npm run lint` grün, `npm run build` grün.
+- 2026-03-10: Live-Smoke-Test ergänzt: `npm run test:live` baut das Spiel, startet `serve-dist.js` und fährt drei Browser-Szenarien gegen den Produktions-Build.
+- 2026-03-10: `playwright` als Dev-Dependency ergänzt; der Repo-Client unterstützt jetzt optional `--browser-channel` / `--executable-path`.
+- 2026-03-10: Live-Test hat einen echten Frühstart-Bug gefunden und abgesichert: `getHudState()` musste ohne initialisierte `players` robust sein.
+- 2026-03-10: `render_game_to_text` bevorzugt im Bootscreen jetzt korrekt den Boot-Zustand statt einer halbinitialisierten `GameScene`.
+- 2026-03-10: Screenshot-Capture im Playwright-Client auf robuste `page.screenshot()`-Erfassung umgestellt; visuelle Smoke-Artefakte jetzt plausibel.
+- 2026-03-10: Verifikation erfolgreich: `npm test`, `npm run test:live`, `npm run lint`, `npm run build`.
+- 2026-03-10: Spielerwechsel-Dialoge im Battle kompakter umgesetzt: typabhängiges Unified-Dialog-Layout für `turn`, kleinere Typografie und leicht transparente Dialog-Card/Shade.
+- 2026-03-10: Verifikation für den kleineren Turn-Dialog erfolgreich: `npm test`, `npm run lint`, `npm run test:live`; Gameplay-Screenshot visuell geprüft.
+- 2026-03-10: README um Battle-Loop, kompakte Turn-Dialoge, Test-Workflow und neue Hilfs-/Systemmodule ergänzt.

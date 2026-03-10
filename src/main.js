@@ -26,4 +26,54 @@ const config = {
   scene: [BootScene, GameScene, UIScene]
 };
 
-new Phaser.Game(config);
+const game = new Phaser.Game(config);
+
+function getScene(key) {
+  try {
+    return game.scene.getScene(key);
+  } catch {
+    return null;
+  }
+}
+
+function getAutomationState() {
+  const gameScene = getScene('game');
+  const bootScene = getScene('boot');
+  const bootActive = Boolean(bootScene?.scene?.isActive?.());
+
+  if (bootActive) {
+    return {
+      coordinateSystem: 'origin top-left; +x right; +y down',
+      scene: 'boot',
+      bootActive: true,
+      gameActive: Boolean(gameScene?.scene?.isActive?.())
+    };
+  }
+
+  if (gameScene?.getAutomationState) {
+    return gameScene.getAutomationState();
+  }
+
+  return {
+    coordinateSystem: 'origin top-left; +x right; +y down',
+    scene: null,
+    bootActive,
+    gameActive: Boolean(gameScene?.scene?.isActive?.())
+  };
+}
+
+window.__PHASER_GAME__ = game;
+window.render_game_to_text = () => JSON.stringify(getAutomationState());
+window.advanceTime = (ms = 1000 / 60) => new Promise((resolve) => {
+  const endAt = performance.now() + Math.max(ms, 0);
+
+  const tick = () => {
+    if (performance.now() >= endAt) {
+      resolve();
+      return;
+    }
+    window.requestAnimationFrame(tick);
+  };
+
+  window.requestAnimationFrame(tick);
+});
