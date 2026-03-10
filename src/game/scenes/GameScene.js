@@ -33,7 +33,12 @@ import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchP
 import { playTitleSong, stopTitleSong } from '../systems/TitleSongManager.js';
 import { InputController } from '../systems/InputController.js';
 import { VisualFxPool } from '../systems/VisualFxPool.js';
-import { getNextActivePlayerIndex, getNextWeaponIndex } from '../systems/gameplayLogic.js';
+import {
+  getNextActivePlayerIndex,
+  getNextWeaponIndex,
+  shouldRailDrill,
+  shouldSplitProjectile
+} from '../systems/gameplayLogic.js';
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
@@ -1586,18 +1591,108 @@ export class GameScene extends Phaser.Scene {
   }
 
   spawnProjectile(config) {
-    const sprite = this.add.circle(config.x, config.y, config.radius, config.color, 1).setDepth(50);
-    sprite.setStrokeStyle(2, 0xffffff, 0.55);
-    sprite.setBlendMode(Phaser.BlendModes.ADD);
+    const displayConfig = this.createProjectileDisplay(config);
     const trail = this.add.graphics().setDepth(49);
 
     this.projectiles.push({
       ...config,
-      sprite,
+      ...displayConfig,
+      sprite: displayConfig.sprite,
       trail,
       trailPoints: [],
-      bouncesLeft: config.weapon.maxBounces ?? 0
+      bouncesLeft: config.weapon.maxBounces ?? 0,
+      drilledTerrain: false
     });
+  }
+
+  createProjectileDisplay(config) {
+    const style = config.weapon.projectileStyle ?? 'orb';
+    const accent = Phaser.Display.Color.Interpolate.ColorWithColor(
+      Phaser.Display.Color.ValueToColor(config.color),
+      Phaser.Display.Color.ValueToColor(0xffffff),
+      100,
+      42
+    );
+    const accentColor = Phaser.Display.Color.GetColor(accent.r, accent.g, accent.b);
+    let sprite;
+    let alignToVelocity = false;
+    let rotationOffset = 0;
+    let spinRate = 0;
+
+    switch (style) {
+      case 'heavy-orb':
+        sprite = this.add.ellipse(config.x, config.y, config.radius * 2.8, config.radius * 2.2, config.color, 1);
+        sprite.setStrokeStyle(3, 0x4d2200, 0.68);
+        break;
+      case 'diamond':
+        sprite = this.add.rectangle(config.x, config.y, config.radius * 2.4, config.radius * 2.4, config.color, 1);
+        sprite.setStrokeStyle(2, accentColor, 0.82);
+        alignToVelocity = true;
+        rotationOffset = Math.PI / 4;
+        break;
+      case 'chunk':
+        sprite = this.add.rectangle(config.x, config.y, config.radius * 2.7, config.radius * 1.9, config.color, 1);
+        sprite.setStrokeStyle(2, 0xf3ffd4, 0.74);
+        spinRate = 0.18;
+        break;
+      case 'slug':
+        sprite = this.add.rectangle(config.x, config.y, config.radius * 4.6, config.radius * 1.25, config.color, 1);
+        sprite.setStrokeStyle(2, accentColor, 0.9);
+        alignToVelocity = true;
+        break;
+      case 'shard':
+        sprite = this.add.triangle(
+          config.x,
+          config.y,
+          -config.radius * 1.8,
+          config.radius * 0.95,
+          config.radius * 2.4,
+          0,
+          -config.radius * 1.8,
+          -config.radius * 0.95,
+          config.color,
+          1
+        );
+        sprite.setStrokeStyle(2, accentColor, 0.86);
+        alignToVelocity = true;
+        break;
+      case 'block':
+        sprite = this.add.rectangle(config.x, config.y, config.radius * 2.5, config.radius * 2.5, config.color, 1);
+        sprite.setStrokeStyle(2, 0x3f2507, 0.72);
+        spinRate = 0.11;
+        break;
+      case 'orb':
+      default:
+        sprite = this.add.circle(config.x, config.y, config.radius, config.color, 1);
+        sprite.setStrokeStyle(2, 0xffffff, 0.55);
+        break;
+    }
+
+    sprite.setDepth(50);
+    sprite.setBlendMode(Phaser.BlendModes.ADD);
+
+    return {
+      sprite,
+      alignToVelocity,
+      rotationOffset,
+      spinRate
+    };
+  }
+
+  syncProjectileDisplay(projectile) {
+    projectile.sprite.setPosition(projectile.x, projectile.y);
+    if (projectile.alignToVelocity) {
+      projectile.sprite.rotation = Math.atan2(projectile.vy, projectile.vx) + (projectile.rotationOffset ?? 0);
+      return;
+    }
+    if (projectile.spinRate) {
+      projectile.sprite.rotation += projectile.spinRate;
+    }
+  }
+
+  destroyProjectile(projectile) {
+    projectile.trail.destroy();
+    projectile.sprite.destroy();
   }
 
   spawnBounceFlash(x, y, weapon, ownerName = null) {
@@ -1650,6 +1745,55 @@ export class GameScene extends Phaser.Scene {
         onComplete: () => spark.destroy()
       });
     }
+
+    if (weapon.id === 'rail') {
+      const streak = this.add.rectangle(x + 28, y, 58, 3, 0xd5f7ff, 0.92).setDepth(57);
+      streak.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: streak,
+        scaleX: 2.2,
+        alpha: 0,
+        duration: 110,
+        ease: 'Cubic.Out',
+        onComplete: () => streak.destroy()
+      });
+    } else if (weapon.id === 'splitstorm') {
+      for (let i = 0; i < 4; i += 1) {
+        const shard = this.add.triangle(x, y, -8, 3, 10, 0, -8, -3, weapon.explosionCore, 0.9).setDepth(57);
+        shard.rotation = (Math.PI * 2 * i) / 4;
+        shard.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: shard,
+          scaleX: 1.8,
+          scaleY: 1.25,
+          alpha: 0,
+          duration: 120,
+          ease: 'Cubic.Out',
+          onComplete: () => shard.destroy()
+        });
+      }
+    } else if (weapon.id === 'hopper') {
+      for (let i = 0; i < 3; i += 1) {
+        const chunk = this.add.rectangle(
+          x + Phaser.Math.Between(-4, 4),
+          y + Phaser.Math.Between(-3, 3),
+          Phaser.Math.Between(8, 14),
+          Phaser.Math.Between(5, 8),
+          weapon.explosionRing,
+          0.88
+        ).setDepth(57);
+        chunk.rotation = Phaser.Math.FloatBetween(-0.5, 0.5);
+        this.tweens.add({
+          targets: chunk,
+          x: chunk.x + Phaser.Math.Between(12, 24),
+          y: chunk.y + Phaser.Math.Between(-10, 10),
+          alpha: 0,
+          angle: Phaser.Math.Between(-35, 35),
+          duration: 140,
+          onComplete: () => chunk.destroy()
+        });
+      }
+    }
   }
 
   updateProjectiles(dt) {
@@ -1673,15 +1817,27 @@ export class GameScene extends Phaser.Scene {
       }
       this.drawProjectileTrail(projectile);
 
-      if (projectile.weapon.id === 'split' && !projectile.didSplit && projectile.age >= projectile.weapon.splitDelay) {
+      if (shouldSplitProjectile(projectile.weapon, projectile.age, projectile.didSplit)) {
         this.splitProjectile(projectile, i);
         continue;
       }
 
       const collision = this.traceProjectile(previousX, previousY, projectile.x, projectile.y, projectile);
-      projectile.sprite.setPosition(projectile.x, projectile.y);
+      this.syncProjectileDisplay(projectile);
 
       if (collision) {
+        if (shouldRailDrill(projectile.weapon, collision, projectile.drilledTerrain)) {
+          projectile.drilledTerrain = true;
+          this.spawnRailDrillFx(collision.x, collision.y, projectile.weapon);
+          this.terrain.deformCircle(collision.x, collision.y, 9, { drawRim: false, profile: 'scoop' });
+          projectile.x = collision.x + Math.sign(projectile.vx || 1) * 10;
+          projectile.y = collision.y - 2;
+          projectile.vx *= 0.88;
+          projectile.vy *= 0.82;
+          this.syncProjectileDisplay(projectile);
+          continue;
+        }
+
         const canBounce =
           projectile.weapon.maxBounces &&
           projectile.bouncesLeft > 0 &&
@@ -1701,6 +1857,7 @@ export class GameScene extends Phaser.Scene {
           projectile.x = collision.x;
           projectile.y = collision.y - 5;
           projectile.bouncesLeft -= 1;
+          this.syncProjectileDisplay(projectile);
           this.spawnBounceFlash(
             collision.x,
             collision.y,
@@ -1711,15 +1868,13 @@ export class GameScene extends Phaser.Scene {
         }
 
         this.explode(collision.x, collision.y, projectile.weapon, projectile.owner);
-        projectile.trail.destroy();
-        projectile.sprite.destroy();
+        this.destroyProjectile(projectile);
         this.projectiles.splice(i, 1);
         continue;
       }
 
       if (projectile.x < -40 || projectile.x > GAME_WIDTH + 40 || projectile.y > GAME_HEIGHT + 60) {
-        projectile.trail.destroy();
-        projectile.sprite.destroy();
+        this.destroyProjectile(projectile);
         this.projectiles.splice(i, 1);
       }
     }
@@ -1751,9 +1906,26 @@ export class GameScene extends Phaser.Scene {
       trail.lineTo(to.x, to.y);
       trail.strokePath();
 
+      if (projectile.weapon.id === 'rail') {
+        trail.lineStyle(1.4, 0xffffff, alpha * 0.5);
+        trail.beginPath();
+        trail.moveTo(from.x, from.y);
+        trail.lineTo(to.x, to.y);
+        trail.strokePath();
+      }
+
+      if (projectile.weapon.id === 'hopper' && i === trailPoints.length - 1) {
+        trail.fillStyle(projectile.color, alpha * 0.28);
+        trail.fillRect(to.x - 4, to.y - 4, 8, 8);
+      }
+
       if (projectile.weapon.id.startsWith('split') && i === trailPoints.length - 1) {
         trail.fillStyle(projectile.color, alpha * 0.2);
-        trail.fillCircle(to.x, to.y, 3 + alpha * 2);
+        if (projectile.weapon.projectileStyle === 'shard') {
+          trail.fillTriangle(to.x - 7, to.y + 3, to.x + 8, to.y, to.x - 7, to.y - 3);
+        } else {
+          trail.fillCircle(to.x, to.y, 3 + alpha * 2);
+        }
       }
     }
 
@@ -1792,9 +1964,37 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.particles.explode(16, projectile.x, projectile.y);
-    projectile.trail.destroy();
-    projectile.sprite.destroy();
+    this.destroyProjectile(projectile);
     this.projectiles.splice(index, 1);
+  }
+
+  spawnRailDrillFx(x, y, weapon) {
+    const ring = this.add.circle(x, y, 6, weapon.explosionCore, 0.85).setDepth(58);
+    ring.setStrokeStyle(2, weapon.explosionRing, 0.8);
+    ring.setBlendMode(Phaser.BlendModes.ADD);
+    this.tweens.add({
+      targets: ring,
+      radius: 18,
+      alpha: 0,
+      duration: 120,
+      ease: 'Cubic.Out',
+      onComplete: () => ring.destroy()
+    });
+
+    for (let i = 0; i < 5; i += 1) {
+      const spark = this.add.rectangle(x, y, 10, 2, weapon.explosionCore, 0.9).setDepth(58);
+      spark.rotation = Phaser.Math.FloatBetween(-0.8, 0.8);
+      spark.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: spark,
+        x: x + Phaser.Math.Between(-12, 12),
+        y: y + Phaser.Math.Between(-8, 8),
+        alpha: 0,
+        scaleX: Phaser.Math.FloatBetween(1.3, 2.2),
+        duration: 110,
+        onComplete: () => spark.destroy()
+      });
+    }
   }
 
   traceProjectile(x0, y0, x1, y1, projectile) {
@@ -1859,7 +2059,7 @@ export class GameScene extends Phaser.Scene {
     this.terrain.stampImpactDecal(crater.x, crater.y, weapon.blastRadius, weapon);
     this.stabilityActive = true;
     this.markPredictionDirty();
-    this.spawnCraterDebris(crater.x, crater.y, weapon.blastRadius);
+    this.spawnCraterDebris(crater.x, crater.y, weapon);
 
     const ring = this.add.circle(x, y, 8, weapon.explosionCore, 0.85).setDepth(58);
     ring.setStrokeStyle(3, weapon.explosionRing, 0.9);
@@ -1964,15 +2164,18 @@ export class GameScene extends Phaser.Scene {
   spawnFireballExplosion(x, y, weapon) {
     const radius = weapon.blastRadius;
     const motionScale = this.getMotionScale();
-    const fireCore = this.add.circle(x, y, Math.max(12, radius * 0.22), 0xffe6a8, 0.95).setDepth(61);
+    const profile = this.getExplosionFxProfile(weapon);
+    const fireCore = this.add.circle(x, y, Math.max(10, radius * profile.coreRadiusScale), profile.coreColor, 0.97).setDepth(61);
     fireCore.setBlendMode(Phaser.BlendModes.ADD);
-    const fireShell = this.add.circle(x, y, Math.max(18, radius * 0.34), 0xff7a2a, 0.62).setDepth(60);
+    const fireShell = this.add.circle(x, y, Math.max(16, radius * profile.shellRadiusScale), profile.shellColor, profile.shellAlpha).setDepth(60);
     fireShell.setBlendMode(Phaser.BlendModes.ADD);
-    const smokeRing = this.add.circle(x, y, Math.max(16, radius * 0.28), 0x3a2a22, 0.26).setDepth(56);
+    const smokeRing = this.add.circle(x, y, Math.max(14, radius * profile.smokeRadiusScale), profile.smokeColor, profile.smokeAlpha).setDepth(56);
+    const afterGlow = this.add.circle(x, y, Math.max(8, radius * 0.18), profile.glowColor, 0.4).setDepth(59);
+    afterGlow.setBlendMode(Phaser.BlendModes.ADD);
 
     this.tweens.add({
       targets: fireCore,
-      radius: radius * 1.05,
+      radius: radius * profile.coreExpandScale,
       alpha: 0,
       duration: 180,
       ease: 'Cubic.Out',
@@ -1980,7 +2183,7 @@ export class GameScene extends Phaser.Scene {
     });
     this.tweens.add({
       targets: fireShell,
-      radius: radius * 1.45,
+      radius: radius * profile.shellExpandScale,
       alpha: 0,
       duration: 240,
       ease: 'Quad.Out',
@@ -1994,13 +2197,46 @@ export class GameScene extends Phaser.Scene {
       ease: 'Sine.Out',
       onComplete: () => smokeRing.destroy()
     });
+    this.tweens.add({
+      targets: afterGlow,
+      radius: radius * profile.glowExpandScale,
+      alpha: 0,
+      duration: 260,
+      ease: 'Sine.Out',
+      onComplete: () => afterGlow.destroy()
+    });
 
-    this.fireParticles.explode(Math.floor(12 + radius * 0.7 * motionScale), x, y);
-    this.emberParticles.explode(Math.floor(8 + radius * 0.55 * motionScale), x, y);
-    this.smokeParticles.explode(Math.floor(6 + radius * 0.38 * motionScale), x, y);
+    if (profile.secondaryBursts > 0) {
+      for (let i = 0; i < profile.secondaryBursts; i += 1) {
+        const angle = (Math.PI * 2 * i) / profile.secondaryBursts + Phaser.Math.FloatBetween(-0.18, 0.18);
+        const burst = this.add.circle(
+          x + Math.cos(angle) * radius * Phaser.Math.FloatBetween(0.12, 0.28),
+          y + Math.sin(angle) * radius * Phaser.Math.FloatBetween(0.12, 0.28),
+          Math.max(4, radius * 0.12),
+          profile.burstColor,
+          0.68
+        ).setDepth(60);
+        burst.setBlendMode(Phaser.BlendModes.ADD);
+        this.tweens.add({
+          targets: burst,
+          radius: radius * Phaser.Math.FloatBetween(0.34, 0.58),
+          alpha: 0,
+          duration: Phaser.Math.Between(120, 190),
+          onComplete: () => burst.destroy()
+        });
+      }
+    }
+
+    this.fireParticles.setConfig({ tint: profile.fireTint });
+    this.emberParticles.setConfig({ tint: profile.emberTint });
+    this.smokeParticles.setConfig({ tint: profile.smokeTint });
+    this.fireParticles.explode(Math.floor(profile.fireCount + radius * 0.7 * motionScale), x, y);
+    this.emberParticles.explode(Math.floor(profile.emberCount + radius * 0.55 * motionScale), x, y);
+    this.smokeParticles.explode(Math.floor(profile.smokeCount + radius * 0.38 * motionScale), x, y);
   }
 
   playArcadeImpactFx(x, y, weapon) {
+    const profile = this.getExplosionFxProfile(weapon);
     const flashAlpha = Phaser.Math.Clamp(0.1 + weapon.blastRadius / 180, 0.12, 0.28);
     this.tweens.killTweensOf(this.impactFlash);
     this.impactFlash.setAlpha(flashAlpha);
@@ -2012,11 +2248,11 @@ export class GameScene extends Phaser.Scene {
     });
 
     const outer = this.add.circle(x, y, weapon.blastRadius * 0.26, weapon.explosionRing, 0).setDepth(58);
-    outer.setStrokeStyle(4, weapon.explosionRing, 0.92);
+    outer.setStrokeStyle(profile.ringStrokeWidth, weapon.explosionRing, 0.95);
     outer.setBlendMode(Phaser.BlendModes.ADD);
     this.tweens.add({
       targets: outer,
-      radius: weapon.blastRadius * 2.05,
+      radius: weapon.blastRadius * profile.outerRingScale,
       alpha: 0,
       duration: 260,
       ease: 'Cubic.Out',
@@ -2034,28 +2270,198 @@ export class GameScene extends Phaser.Scene {
       onComplete: () => core.destroy()
     });
 
-    for (let i = 0; i < 8; i += 1) {
-      const angle = (Math.PI * 2 * i) / 8 + Phaser.Math.FloatBetween(-0.24, 0.24);
+    if (profile.innerRingScale > 0) {
+      const inner = this.add.circle(x, y, weapon.blastRadius * 0.18, profile.glowColor, 0).setDepth(59);
+      inner.setStrokeStyle(2, profile.burstColor, 0.86);
+      inner.setBlendMode(Phaser.BlendModes.ADD);
+      this.tweens.add({
+        targets: inner,
+        radius: weapon.blastRadius * profile.innerRingScale,
+        alpha: 0,
+        duration: 180,
+        ease: 'Quad.Out',
+        onComplete: () => inner.destroy()
+      });
+    }
+
+    for (let i = 0; i < profile.shardCount; i += 1) {
+      const angle =
+        (Math.PI * 2 * i) / profile.shardCount + Phaser.Math.FloatBetween(-profile.shardAngleJitter, profile.shardAngleJitter);
       const shard = this.fxPool?.acquireImpactShard()
         ?? this.add.rectangle(0, 0, 4, 2, 0xffffff, 1).setDepth(58);
       shard.setPosition(
         x + Math.cos(angle) * 8,
         y + Math.sin(angle) * 8
       );
-      shard.setSize(Phaser.Math.Between(10, 18), Phaser.Math.Between(2, 4));
-      shard.setFillStyle(Phaser.Math.RND.pick([weapon.explosionCore, weapon.explosionRing, 0xfff1bf]), 0.86);
+      shard.setSize(
+        Phaser.Math.Between(profile.shardWidth[0], profile.shardWidth[1]),
+        Phaser.Math.Between(profile.shardHeight[0], profile.shardHeight[1])
+      );
+      shard.setFillStyle(Phaser.Math.RND.pick(profile.shardPalette), profile.shardAlpha);
       shard.rotation = angle;
       shard.setBlendMode(Phaser.BlendModes.ADD);
       this.tweens.add({
         targets: shard,
-        x: x + Math.cos(angle) * Phaser.Math.Between(44, 86),
-        y: y + Math.sin(angle) * Phaser.Math.Between(44, 86),
+        x: x + Math.cos(angle) * Phaser.Math.Between(profile.shardDistance[0], profile.shardDistance[1]),
+        y: y + Math.sin(angle) * Phaser.Math.Between(profile.shardDistance[0], profile.shardDistance[1]),
         alpha: 0,
         scaleX: 0.4,
-        duration: Phaser.Math.Between(170, 240),
+        duration: Phaser.Math.Between(profile.shardDuration[0], profile.shardDuration[1]),
         ease: 'Cubic.Out',
         onComplete: () => this.releaseFxObject(shard)
       });
+    }
+  }
+
+  getExplosionFxProfile(weapon) {
+    const base = {
+      coreColor: weapon.explosionCore,
+      shellColor: weapon.explosionRing,
+      smokeColor: 0x3f3028,
+      glowColor: weapon.explosionCore,
+      burstColor: 0xfff1bf,
+      fireTint: [weapon.explosionCore, weapon.explosionRing, 0xffb347],
+      emberTint: [weapon.explosionCore, weapon.explosionRing, 0xff9342],
+      smokeTint: [0x2b2320, 0x42332d, 0x5b4a3f],
+      coreRadiusScale: 0.24,
+      shellRadiusScale: 0.36,
+      smokeRadiusScale: 0.3,
+      shellAlpha: 0.68,
+      smokeAlpha: 0.34,
+      coreExpandScale: 1.05,
+      shellExpandScale: 1.45,
+      glowExpandScale: 1.2,
+      secondaryBursts: 0,
+      fireCount: 12,
+      emberCount: 8,
+      smokeCount: 6,
+      ringStrokeWidth: 4,
+      outerRingScale: 2.05,
+      innerRingScale: 0,
+      shardCount: 8,
+      shardWidth: [10, 18],
+      shardHeight: [2, 4],
+      shardPalette: [weapon.explosionCore, weapon.explosionRing, 0xfff1bf],
+      shardAlpha: 0.88,
+      shardDistance: [44, 86],
+      shardDuration: [170, 240],
+      shardAngleJitter: 0.24
+    };
+
+    switch (weapon.id) {
+      case 'mortar':
+        return {
+          ...base,
+          shellAlpha: 0.74,
+          smokeAlpha: 0.44,
+          coreExpandScale: 1.22,
+          shellExpandScale: 1.72,
+          glowExpandScale: 1.44,
+          secondaryBursts: 2,
+          fireCount: 16,
+          emberCount: 11,
+          smokeCount: 9,
+          ringStrokeWidth: 5,
+          outerRingScale: 2.2,
+          innerRingScale: 0.82,
+          shardCount: 10,
+          shardWidth: [12, 22],
+          shardHeight: [3, 6],
+          shardDistance: [54, 110],
+          smokeTint: [0x302622, 0x4f3a31, 0x684d40]
+        };
+      case 'split':
+        return {
+          ...base,
+          glowColor: 0xdffef8,
+          burstColor: 0xdffef8,
+          secondaryBursts: 3,
+          fireTint: [0xdffef8, weapon.explosionRing, 0x8ff7ef],
+          emberTint: [0xcdfef4, weapon.explosionRing, 0x67dccc],
+          innerRingScale: 0.72,
+          shardCount: 9,
+          shardWidth: [8, 16],
+          shardHeight: [2, 3],
+          shardDistance: [48, 90]
+        };
+      case 'bouncer':
+        return {
+          ...base,
+          coreColor: 0xe8ffd8,
+          shellColor: weapon.explosionRing,
+          glowColor: 0xd2ffb2,
+          smokeColor: 0x35412c,
+          secondaryBursts: 2,
+          fireTint: [0xe8ffd8, 0x8cff86, weapon.explosionRing],
+          emberTint: [0xd8ffbe, 0x7be972, weapon.explosionRing],
+          smokeTint: [0x243019, 0x3b4a28, 0x516638],
+          innerRingScale: 0.64,
+          shardWidth: [10, 16],
+          shardHeight: [3, 5]
+        };
+      case 'rail':
+        return {
+          ...base,
+          smokeAlpha: 0.18,
+          glowColor: 0xffffff,
+          burstColor: 0xdffbff,
+          secondaryBursts: 1,
+          fireTint: [0xffffff, 0xd5f7ff, weapon.explosionRing],
+          emberTint: [0xf0fdff, 0xbcefff, weapon.explosionRing],
+          smokeTint: [0x22313b, 0x31444f, 0x45606e],
+          coreExpandScale: 0.86,
+          shellExpandScale: 1.12,
+          glowExpandScale: 1.46,
+          ringStrokeWidth: 3,
+          outerRingScale: 1.52,
+          innerRingScale: 0.48,
+          shardCount: 6,
+          shardWidth: [18, 26],
+          shardHeight: [2, 3],
+          shardDistance: [50, 120],
+          shardDuration: [130, 190],
+          shardAngleJitter: 0.12
+        };
+      case 'splitstorm':
+        return {
+          ...base,
+          glowColor: 0xf9f4ff,
+          burstColor: 0xe7ddff,
+          secondaryBursts: 5,
+          fireTint: [0xf4efff, weapon.explosionRing, 0x92e7ff],
+          emberTint: [0xe9ddff, 0xc1b0ff, 0x92e7ff],
+          smokeTint: [0x261f37, 0x3b2f56, 0x56447b],
+          coreExpandScale: 0.92,
+          shellExpandScale: 1.22,
+          glowExpandScale: 1.56,
+          innerRingScale: 0.96,
+          shardCount: 12,
+          shardWidth: [10, 20],
+          shardHeight: [2, 3],
+          shardPalette: [weapon.explosionCore, weapon.explosionRing, 0x92e7ff, 0xf9f4ff],
+          shardDistance: [46, 96],
+          shardDuration: [150, 220]
+        };
+      case 'hopper':
+        return {
+          ...base,
+          shellAlpha: 0.72,
+          smokeAlpha: 0.4,
+          glowColor: 0xfff0d5,
+          burstColor: 0xffc982,
+          secondaryBursts: 3,
+          fireTint: [0xfff0d5, weapon.explosionRing, 0xffbb6c],
+          emberTint: [0xffdda6, 0xffb563, weapon.explosionRing],
+          smokeTint: [0x2d241e, 0x47362a, 0x644935],
+          innerRingScale: 0.68,
+          shardCount: 9,
+          shardWidth: [8, 14],
+          shardHeight: [4, 7],
+          shardDistance: [40, 80]
+        };
+      case 'shell':
+      default:
+        return base;
     }
   }
 
@@ -2098,29 +2504,115 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  spawnCraterDebris(x, y, radius) {
-    const count = Phaser.Math.Clamp(Math.round(radius / 4), 8, 18);
+  spawnCraterDebris(x, y, weapon) {
+    const radius = weapon.blastRadius;
+    const profile = this.getDebrisFxProfile(weapon);
+    const count = Phaser.Math.Clamp(Math.round(radius / 4) + profile.countOffset, 8, profile.maxCount);
     for (let i = 0; i < count; i += 1) {
       const chip = this.fxPool?.acquireDebrisChip()
         ?? this.add.rectangle(0, 0, 4, 2, 0xffffff, 1).setDepth(57);
       chip.setPosition(
-        x + Phaser.Math.Between(-radius * 0.4, radius * 0.4),
-        y - Phaser.Math.Between(2, 10)
+        x + Phaser.Math.Between(-radius * profile.spawnSpread, radius * profile.spawnSpread),
+        y - Phaser.Math.Between(profile.spawnLift[0], profile.spawnLift[1])
       );
-      chip.setSize(Phaser.Math.Between(3, 8), Phaser.Math.Between(2, 5));
-      chip.setFillStyle(Phaser.Math.RND.pick([0xd7e9aa, 0x91aa6e, 0x6f8250, 0x8a6a4b]), 0.9);
-      chip.rotation = Phaser.Math.FloatBetween(-0.4, 0.4);
+      chip.setSize(
+        Phaser.Math.Between(profile.width[0], profile.width[1]),
+        Phaser.Math.Between(profile.height[0], profile.height[1])
+      );
+      chip.setFillStyle(Phaser.Math.RND.pick(profile.palette), profile.alpha);
+      chip.rotation = Phaser.Math.FloatBetween(-profile.rotationJitter, profile.rotationJitter);
 
       this.tweens.add({
         targets: chip,
-        x: chip.x + Phaser.Math.Between(-radius, radius),
-        y: chip.y + Phaser.Math.Between(-18, 14),
+        x: chip.x + Phaser.Math.Between(-radius * profile.travelSpread, radius * profile.travelSpread),
+        y: chip.y + Phaser.Math.Between(-profile.travelLift[0], profile.travelLift[1]),
         angle: Phaser.Math.Between(-120, 120),
         alpha: 0,
-        duration: Phaser.Math.Between(320, 520),
+        duration: Phaser.Math.Between(profile.duration[0], profile.duration[1]),
         ease: 'Quad.Out',
         onComplete: () => this.releaseFxObject(chip)
       });
+    }
+  }
+
+  getDebrisFxProfile(weapon) {
+    const base = {
+      palette: [0xc9ba8f, 0xa18c63, 0x82684a, 0x67513e],
+      alpha: 0.96,
+      width: [4, 9],
+      height: [3, 6],
+      countOffset: 0,
+      maxCount: 20,
+      spawnSpread: 0.42,
+      spawnLift: [2, 12],
+      travelSpread: 1,
+      travelLift: [18, 14],
+      duration: [340, 560],
+      rotationJitter: 0.65
+    };
+
+    switch (weapon.id) {
+      case 'mortar':
+        return {
+          ...base,
+          palette: [0x8f6d52, 0x6f523d, 0x544032, 0x3c2f25],
+          width: [6, 12],
+          height: [4, 8],
+          countOffset: 3,
+          maxCount: 24,
+          duration: [380, 620]
+        };
+      case 'split':
+        return {
+          ...base,
+          palette: [0xdbfff7, 0x97efe5, 0x68cbbf, 0x5d786f],
+          width: [5, 11],
+          height: [2, 4],
+          countOffset: 1,
+          rotationJitter: 1
+        };
+      case 'bouncer':
+        return {
+          ...base,
+          palette: [0xd7e9aa, 0x91aa6e, 0x6f8250, 0x8a6a4b],
+          width: [5, 10],
+          height: [4, 7],
+          countOffset: 1
+        };
+      case 'rail':
+        return {
+          ...base,
+          palette: [0xeafcff, 0xb8e6f4, 0x87b6c4, 0x60727d],
+          width: [8, 16],
+          height: [1, 3],
+          countOffset: -1,
+          spawnSpread: 0.32,
+          travelSpread: 1.3,
+          rotationJitter: 1.2,
+          duration: [260, 420]
+        };
+      case 'splitstorm':
+        return {
+          ...base,
+          palette: [0xf2eaff, 0xc7b4ff, 0x92e7ff, 0x655c86],
+          width: [7, 15],
+          height: [2, 4],
+          countOffset: 2,
+          rotationJitter: 1.1
+        };
+      case 'hopper':
+        return {
+          ...base,
+          palette: [0xffd29a, 0xffb367, 0xb57a45, 0x5f4637],
+          width: [7, 13],
+          height: [5, 9],
+          countOffset: 2,
+          maxCount: 22,
+          duration: [360, 600]
+        };
+      case 'shell':
+      default:
+        return base;
     }
   }
 

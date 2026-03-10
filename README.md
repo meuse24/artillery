@@ -1,6 +1,6 @@
 # Crater Command
 
-Ein lokales 2D-Arcade-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, vier Waffen mit Munitionslimit, Zugtimer, Wetterbedingungen, vier Terrain-Presets, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
+Ein lokales 2D-Arcade-Artillery-Spiel mit `Phaser 3` und `Vite`: deformierbares Terrain, Wind, sieben Waffen mit Munitionslimit, Zugtimer, Wetterbedingungen, vier Terrain-Presets, Highscore, Start-/Help-/Game-Over-Flow und optionaler CPU-Gegner.
 
 ## Konzept
 
@@ -11,7 +11,7 @@ Das Spiel ist absichtlich klar lesbar gebaut:
 - kurze Zuege mit hartem 25-Sekunden-Timer
 - eindeutige Phasen
 - gut sichtbarer Wind
-- vier mechanisch unterschiedliche Waffen, teilweise mit begrenzter Munition
+- sieben mechanisch unterschiedliche Waffen, teilweise mit begrenzter Munition
 - schnelle Restart-Schleife fuer "one more round"
 - zufaellige Terrain-Form und Wetterbedingung je Match
 
@@ -115,7 +115,7 @@ Mobile (Touch, Landscape):
   - springt bis zu viermal am Terrain entlang
   - stark zum Aushebeln von Deckung und Kanten
 
-Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber Muzzle-Flash, Trail, Explosion und Schadenstext. Die verbleibende Munition steht im HUD neben dem Waffennamen; das prominente Waffenlabel unter dem HUD ist zusaetzlich farblich nach Rarity codiert.
+Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber eigene Projektilformen, Projektilfarben, Muzzle-Flashes, Trails, Explosionen, Impact-Shards und Debris. Die verbleibende Munition steht im HUD neben dem Waffennamen; das prominente Waffenlabel unter dem HUD ist zusaetzlich farblich nach Rarity codiert.
 
 ## Terrain-Presets
 
@@ -225,7 +225,7 @@ Test-Workflow:
 - sichtbare, organische Krater-Deformation mit gezackten Rändern, Vertiefungen und Bodenschichten
 - waffenspezifische Impact-Decals (Scorch/Staub) auf dem Terrain
 - Tanks passen sich dem Terrain an und koennen an steilen Raendern rutschen
-- vier unterschiedliche Waffen, drei davon mit begrenzter Munition
+- sieben unterschiedliche Waffen, sechs davon mit begrenzter Munition
 - Bouncer-Waffe mit physikalisch korrekter Terrain-Reflektion
 - Ammo-System: Cycling ueberspringt leere Waffen automatisch
 - 25-Sekunden-Zugtimer mit Auto-Feuer bei Ablauf
@@ -238,7 +238,9 @@ Test-Workflow:
 - CPU-Gegner mit ballistischer Zielsuche, Fehlerkorrektur und situativer Waffenwahl
 - Rundenstatistiken und persistenter Highscore via `localStorage`
 - animierte HP-Bars, Schadenstexte und Trefferfeedback
-- arcade-lastige Trefferinszenierung: Screen-Flash, Shockwave, Impact-Shards, Hit-Callouts (`DIRECT HIT`)
+- arcade-lastige Trefferinszenierung: Screen-Flash, Shockwave, Impact-Shards, waffenspezifische Explosionen und Hit-Callouts (`DIRECT HIT`)
+- waffenspezifische Projektil-Silhouetten (`orb`, `diamond`, `slug`, `shard`, `block`) fuer klarere Lesbarkeit im Flug
+- opakere, waffenabhaengige Debris-/Fels-Chips beim Einschlag statt generischer halbtransparenter Partikel
 - kurzer Hit-Stop bei starken Treffern fuer mehr Impact
 - Kamera-Fokus bei Schuss und Einschlag
 - responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten

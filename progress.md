@@ -34,3 +34,6 @@ Original prompt: verwende den skill develop-web-game und prüfe das game.
 - 2026-03-10: HUD erneut entzerrt: Waffenlabel und Phasenanzeige komplett unter den HUD-Rahmen verschoben, mittlere Statuszeile gekürzt, damit Wind-/Statuszeilen nicht mehr überlappen.
 - 2026-03-10: Objective-Zeile weiter verdichtet: einzeilig, kleinerer Font, flacherer Streifen und kompakter `Goal: Enemy to 0 HP`-Text statt zweizeiligem Langtext.
 - 2026-03-10: Waffenlabel unter dem HUD färbt jetzt nach Rarity (`COMMON` hell, `RARE` cyan, `EPIC` violett); README entsprechend auf Arsenal- und HUD-Stand aktualisiert.
+- 2026-03-10: Neue Waffen endlich auch in der Wirkung differenziert: `Storm Shards` splitten nun real in 5 Teilgeschosse, `Rail Slug` bohrt sich einmal durch Terrain und hat eigenes Schuss-/Trail-/Drill-Feedback.
+- 2026-03-10: Projektil-VFX pro Waffe weiter arcadig differenziert: eigene Bullet-Silhouetten (`orb`, `heavy-orb`, `diamond`, `chunk`, `slug`, `shard`, `block`), ausdrucksstaerkere Muzzle-/Impact-/Explosionseffekte sowie opakere Debris-Chips mit waffenspezifischen Farbpaletten.
+- 2026-03-10: Verifikation fuer die neuen VFX erfolgreich: `npm test` (47 Tests), `npm run lint`, `npm run build`; Build weiterhin nur mit bekannter Chunk-Size-Warnung.

@@ -11,6 +11,24 @@ export function getNextWeaponIndex(currentIndex, direction, weapons, getAmmoForW
   return currentIndex;
 }
 
+export function shouldSplitProjectile(weapon, age, didSplit) {
+  return Boolean(
+    weapon &&
+    weapon.splitDelay !== null &&
+    weapon.splitDelay !== undefined &&
+    !didSplit &&
+    age >= weapon.splitDelay
+  );
+}
+
+export function shouldRailDrill(weapon, collision, drilledTerrain) {
+  return Boolean(
+    weapon?.id === 'rail' &&
+    collision?.type === 'terrain' &&
+    !drilledTerrain
+  );
+}
+
 export function getNextActivePlayerIndex(players, currentIndex) {
   if (!Array.isArray(players) || !players.length) {
     return currentIndex;

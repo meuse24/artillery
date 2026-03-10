@@ -336,28 +336,31 @@ export class AudioManager {
     const isMortar = weapon.id === 'mortar';
     const isSplit = weapon.id.startsWith('split');
     const isBouncer = weapon.id === 'bouncer' || weapon.id === 'hopper';
+    const isRail = weapon.id === 'rail';
 
     this.sweep({
-      from: isMortar ? 220 : isSplit ? 320 : isBouncer ? 250 : 280,
-      to: isMortar ? 90 : isSplit ? 130 : isBouncer ? 120 : 110,
-      duration: isMortar ? 0.14 : 0.1,
-      type: isMortar ? 'sawtooth' : 'square',
-      gain: isMortar ? 0.076 : 0.064
+      from: isRail ? 480 : isMortar ? 220 : isSplit ? 320 : isBouncer ? 250 : 280,
+      to: isRail ? 180 : isMortar ? 90 : isSplit ? 130 : isBouncer ? 120 : 110,
+      duration: isRail ? 0.08 : isMortar ? 0.14 : 0.1,
+      type: isRail ? 'triangle' : isMortar ? 'sawtooth' : 'square',
+      gain: isRail ? 0.05 : isMortar ? 0.076 : 0.064
     });
     this.tone({
-      frequency: isSplit ? 430 : 520,
-      duration: 0.045,
-      type: 'triangle',
-      gain: 0.03,
+      frequency: isRail ? 780 : isSplit ? 430 : 520,
+      duration: isRail ? 0.06 : 0.045,
+      type: isRail ? 'sine' : 'triangle',
+      gain: isRail ? 0.038 : 0.03,
       delay: 0.01
     });
-    this.noiseBurst({
-      duration: isMortar ? 0.11 : 0.08,
-      gain: isMortar ? 0.044 : 0.034,
-      highpass: isMortar ? 220 : 380,
-      lowpass: isMortar ? 1800 : 2600,
-      delay: 0.004
-    });
+    if (!isRail) {
+      this.noiseBurst({
+        duration: isMortar ? 0.11 : 0.08,
+        gain: isMortar ? 0.044 : 0.034,
+        highpass: isMortar ? 220 : 380,
+        lowpass: isMortar ? 1800 : 2600,
+        delay: 0.004
+      });
+    }
   }
 
   playExplosion(weapon) {
