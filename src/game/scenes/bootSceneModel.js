@@ -9,6 +9,24 @@ export function toggleBootPreference(preferences, key) {
   };
 }
 
+export function getBootOrientationState({ isTouchDevice = false, viewportWidth = 0, viewportHeight = 0 } = {}) {
+  const width = Number.isFinite(viewportWidth) ? viewportWidth : 0;
+  const height = Number.isFinite(viewportHeight) ? viewportHeight : 0;
+  const shortestSide = Math.min(width, height);
+  const phoneLikeTouch = Boolean(isTouchDevice) && shortestSide > 0 && shortestSide <= 500;
+  const isLandscape = width >= height;
+  const startBlocked = phoneLikeTouch && !isLandscape;
+
+  return {
+    phoneLikeTouch,
+    isLandscape,
+    startBlocked,
+    hint: startBlocked
+      ? 'Smartphone erkannt: bitte ins Querformat drehen, dann START drücken.'
+      : ''
+  };
+}
+
 export function getBootPreferenceViewModel(preferences) {
   const fullscreenOn = Boolean(preferences?.fullscreen);
   const soundOn = Boolean(preferences?.sound);

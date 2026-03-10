@@ -5,7 +5,7 @@ export class MobileControls {
   }
 
   bind() {
-    if (this.bound || !this.scene.isTouchDevice) {
+    if (this.bound) {
       return;
     }
 
@@ -40,16 +40,18 @@ export class MobileControls {
       .on('pointerover', this.onWeaponOver)
       .on('pointerout', this.onWeaponOut);
 
-    this.scene.mobileHelpButton
-      .on('pointerdown', this.onHelpDown)
-      .on('pointerover', this.onHelpOver)
-      .on('pointerout', this.onHelpOut);
+    if (this.scene.isTouchDevice) {
+      this.scene.mobileHelpButton
+        .on('pointerdown', this.onHelpDown)
+        .on('pointerover', this.onHelpOver)
+        .on('pointerout', this.onHelpOut);
+    }
 
     this.bound = true;
   }
 
   destroy() {
-    if (!this.bound || !this.scene.isTouchDevice) {
+    if (!this.bound) {
       return;
     }
 
@@ -58,10 +60,12 @@ export class MobileControls {
       .off('pointerover', this.onWeaponOver)
       .off('pointerout', this.onWeaponOut);
 
-    this.scene.mobileHelpButton
-      .off('pointerdown', this.onHelpDown)
-      .off('pointerover', this.onHelpOver)
-      .off('pointerout', this.onHelpOut);
+    if (this.scene.isTouchDevice) {
+      this.scene.mobileHelpButton
+        .off('pointerdown', this.onHelpDown)
+        .off('pointerover', this.onHelpOver)
+        .off('pointerout', this.onHelpOut);
+    }
 
     this.bound = false;
   }

@@ -1038,7 +1038,19 @@ export class GameScene extends Phaser.Scene {
       candidates.push(2);
     }
 
-    // Bouncer: never used by CPU (bounce simulation not implemented)
+    // Rail Slug: better on longer, flatter lanes where precision matters.
+    const railIndex = WEAPONS.findIndex((weapon) => weapon.id === 'rail');
+    if (railIndex >= 0 && dist > 280 && player.getAmmo('rail') > 0) {
+      candidates.push(railIndex);
+    }
+
+    // Storm Shards: short-to-mid range area denial.
+    const splitStormIndex = WEAPONS.findIndex((weapon) => weapon.id === 'splitstorm');
+    if (splitStormIndex >= 0 && dist < 360 && player.getAmmo('splitstorm') > 0) {
+      candidates.push(splitStormIndex);
+    }
+
+    // Bouncer/Hopper: never used by CPU (bounce simulation not implemented)
     return candidates;
   }
 
@@ -1115,7 +1127,10 @@ export class GameScene extends Phaser.Scene {
           const selfPenalty = selfDistance < weapon.blastRadius + 26 ? 280 : 0;
           const directBonus = result.directHit ? -120 : 0;
           // Prefer mortar when close (larger blast radius covers misses better)
-          const weaponBonus = weaponIndex === 1 && Math.abs(target.x - player.x) < 200 ? -20 : 0;
+          const weaponBonus =
+            (weapon.id === 'mortar' && Math.abs(target.x - player.x) < 200 ? -20 : 0) +
+            (weapon.id === 'rail' && Math.abs(target.x - player.x) > 280 ? -18 : 0) +
+            (weapon.id === 'splitstorm' && Math.abs(target.x - player.x) < 280 ? -10 : 0);
           const score = result.distance + selfPenalty + directBonus + weaponBonus;
 
           if (score < bestPlan.score) {
@@ -2406,12 +2421,15 @@ export class GameScene extends Phaser.Scene {
         const w = getWeapon(player.weaponIndex);
         const ammoCount = player.getAmmo(w.id);
         const ammoText = w.ammo === null ? '' : ` (${ammoCount === Infinity ? '∞' : ammoCount})`;
+        const rarityText = w.rarity ? ` [${w.rarity.toUpperCase()}]` : '';
         return {
           name: player.name,
           hp: player.hp,
           pitch: Math.round(player.pitch),
           power: Math.round(player.power),
-          weapon: w.label + ammoText,
+          weapon: w.label + rarityText + ammoText,
+          weaponLabel: w.label,
+          weaponRarity: w.rarity ?? null,
           wins: this.highscores[player.name] ?? 0
         };
       }),

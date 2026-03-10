@@ -24,3 +24,13 @@ Original prompt: verwende den skill develop-web-game und prüfe das game.
 - 2026-03-10: Spielerwechsel-Dialoge im Battle kompakter umgesetzt: typabhängiges Unified-Dialog-Layout für `turn`, kleinere Typografie und leicht transparente Dialog-Card/Shade.
 - 2026-03-10: Verifikation für den kleineren Turn-Dialog erfolgreich: `npm test`, `npm run lint`, `npm run test:live`; Gameplay-Screenshot visuell geprüft.
 - 2026-03-10: README um Battle-Loop, kompakte Turn-Dialoge, Test-Workflow und neue Hilfs-/Systemmodule ergänzt.
+- 2026-03-10: Neuer großer Touch-Waffenbutton links oben im HUD verdrahtet; Touch-HUD dafür vertikal entzerrt.
+- 2026-03-10: Bootscreen startet auf phone-artigen Touch-Viewports nur noch im Querformat und zeigt sonst einen klaren Landscape-Hinweis.
+- 2026-03-10: Aktive Phase zusätzlich als klarer Badge rechts oben im HUD ergänzt (`MOVE`, `AIM&SHOOT`).
+- 2026-03-10: Waffenbutton auf allen Geräten sichtbar gemacht; Click-Hook läuft jetzt auch auf Desktop/Tablet, Help bleibt touch-spezifisch.
+- 2026-03-10: Waffenbutton und Phasen-Badge in eine eigene untere HUD-Zeile verschoben, statt oben in den Spielerboxen zu sitzen.
+- 2026-03-10: Drei zusätzliche Waffen ergänzt: `Rail Slug`, `Storm Shards`, `Hopper Mine`; Help-Text, CPU-Kandidaten und Waffen-Tests entsprechend erweitert.
+- 2026-03-10: Neue Waffen nachgetunt: `Rail Slug` jetzt seltener/präziser (`ammo: 3`, `rarity: rare`), `Storm Shards` als `epic`, `Hopper Mine` seltener und mit 4 statt 5 Bounces.
+- 2026-03-10: HUD erneut entzerrt: Waffenlabel und Phasenanzeige komplett unter den HUD-Rahmen verschoben, mittlere Statuszeile gekürzt, damit Wind-/Statuszeilen nicht mehr überlappen.
+- 2026-03-10: Objective-Zeile weiter verdichtet: einzeilig, kleinerer Font, flacherer Streifen und kompakter `Goal: Enemy to 0 HP`-Text statt zweizeiligem Langtext.
+- 2026-03-10: Waffenlabel unter dem HUD färbt jetzt nach Rarity (`COMMON` hell, `RARE` cyan, `EPIC` violett); README entsprechend auf Arsenal- und HUD-Stand aktualisiert.

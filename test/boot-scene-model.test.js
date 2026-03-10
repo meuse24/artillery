@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getBootOrientationState,
   getBootPreferenceViewModel,
   isBootGameSceneReady,
   toggleBootPreference
@@ -30,6 +31,45 @@ test('boot scene model derives the correct UI labels and styles', () => {
       fullscreenTextColor: '#dff9f5',
       soundTextColor: '#acaba1'
     }
+  );
+});
+
+test('boot scene model blocks game start on phone-like touch devices in portrait only', () => {
+  assert.deepEqual(
+    getBootOrientationState({
+      isTouchDevice: true,
+      viewportWidth: 430,
+      viewportHeight: 932
+    }),
+    {
+      phoneLikeTouch: true,
+      isLandscape: false,
+      startBlocked: true,
+      hint: 'Smartphone erkannt: bitte ins Querformat drehen, dann START drücken.'
+    }
+  );
+
+  assert.deepEqual(
+    getBootOrientationState({
+      isTouchDevice: true,
+      viewportWidth: 932,
+      viewportHeight: 430
+    }),
+    {
+      phoneLikeTouch: true,
+      isLandscape: true,
+      startBlocked: false,
+      hint: ''
+    }
+  );
+
+  assert.equal(
+    getBootOrientationState({
+      isTouchDevice: false,
+      viewportWidth: 430,
+      viewportHeight: 932
+    }).startBlocked,
+    false
   );
 });
 

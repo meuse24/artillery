@@ -140,17 +140,30 @@ test('MobileControls respects blocked game states and uses overlay click to clos
   assert.equal(mobileHelpButton.handlers.size, 0);
 });
 
-test('MobileControls does not bind on non-touch scenes', () => {
+test('MobileControls binds the weapon button on non-touch scenes but leaves touch help unbound', () => {
   const scene = {
     isTouchDevice: false,
     mobileWeaponButton: createButton(),
     mobileHelpButton: createButton(),
-    gameScene: null
+    gameScene: {
+      overlayState: null,
+      gameOver: false,
+      resolving: false,
+      isCpuControlledPlayer() {
+        return false;
+      },
+      getActivePlayer() {
+        return {};
+      },
+      cycleWeapon() {},
+      markPredictionDirty() {},
+      syncHud() {}
+    }
   };
 
   const controls = new MobileControls(scene);
   controls.bind();
 
-  assert.equal(scene.mobileWeaponButton.handlers.size, 0);
+  assert.equal(scene.mobileWeaponButton.handlers.size, 3);
   assert.equal(scene.mobileHelpButton.handlers.size, 0);
 });

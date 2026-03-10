@@ -5,6 +5,7 @@ import { SCENE_KEYS } from '../config/sceneContracts.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
 import { playTitleSong, setTitleSongSource, stopTitleSong } from '../systems/TitleSongManager.js';
 import {
+  getBootOrientationState,
   getBootPreferenceViewModel,
   isBootGameSceneReady,
   toggleBootPreference
@@ -17,6 +18,7 @@ export class BootScene extends Phaser.Scene {
 
   create() {
     this.startPreferences = loadLaunchPreferences();
+    this.bootOrientationState = getBootOrientationState();
     setTitleSongSource(titleSongUrl);
     if (!this.startPreferences.sound) {
       stopTitleSong();
@@ -120,6 +122,23 @@ export class BootScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(502)
       .setInteractive({ useHandCursor: true });
+    this.orientationHint = this.add
+      .text(
+        GAME_WIDTH * 0.5,
+        GAME_HEIGHT * 0.5 + 118,
+        '',
+        {
+          fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+          fontSize: '18px',
+          color: '#ffd995',
+          align: 'center',
+          lineSpacing: 6,
+          wordWrap: { width: 580 }
+        }
+      )
+      .setOrigin(0.5)
+      .setDepth(502)
+      .setVisible(false);
 
     [this.startButton, this.startLabel].forEach((item) => {
       item.on('pointerdown', (_pointer, _lx, _ly, event) => {
@@ -129,8 +148,12 @@ export class BootScene extends Phaser.Scene {
     });
 
     this.startButton
-      .on('pointerover', () => this.startButton.setFillStyle(0xf2b84b, 0.42))
-      .on('pointerout', () => this.startButton.setFillStyle(0xf2b84b, 0.32));
+      .on('pointerover', () => {
+        if (!this.bootOrientationState?.startBlocked) {
+          this.startButton.setFillStyle(0xf2b84b, 0.42);
+        }
+      })
+      .on('pointerout', () => this.updateLaunchAvailability());
 
     this.hotkeyPrefix = this.add
       .text(0, 0, 'HOTKEYS', {
@@ -150,8 +173,10 @@ export class BootScene extends Phaser.Scene {
     this.input.keyboard?.on('keydown-S', () => this.togglePreference('sound'));
     this.input.keyboard?.on('keydown-ENTER', () => this.startFromBoot());
     this.input.keyboard?.on('keydown-SPACE', () => this.startFromBoot());
+    this.bindViewportWatchers();
 
     this.updatePreferenceLabels();
+    this.updateLaunchAvailability();
   }
 
   createLaunchAtmosphere() {
@@ -319,7 +344,84 @@ export class BootScene extends Phaser.Scene {
     this.soundText.setColor(model.soundTextColor);
   }
 
+  getViewportSize() {
+    if (typeof window === 'undefined') {
+      return { width: GAME_WIDTH, height: GAME_HEIGHT };
+    }
+    const viewport = window.visualViewport;
+    return {
+      width: viewport?.width ?? window.innerWidth ?? GAME_WIDTH,
+      height: viewport?.height ?? window.innerHeight ?? GAME_HEIGHT
+    };
+  }
+
+  bindViewportWatchers() {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    this.handleViewportChange = () => this.updateLaunchAvailability();
+    window.addEventListener('resize', this.handleViewportChange);
+    window.addEventListener('orientationchange', this.handleViewportChange);
+    this.scale?.on('resize', this.handleViewportChange);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => this.unbindViewportWatchers());
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => this.unbindViewportWatchers());
+  }
+
+  unbindViewportWatchers() {
+    if (!this.handleViewportChange || typeof window === 'undefined') {
+      return;
+    }
+    window.removeEventListener('resize', this.handleViewportChange);
+    window.removeEventListener('orientationchange', this.handleViewportChange);
+    this.scale?.off('resize', this.handleViewportChange);
+    this.handleViewportChange = null;
+  }
+
+  updateLaunchAvailability() {
+    this.bootOrientationState = getBootOrientationState({
+      isTouchDevice: Boolean(this.sys.game.device.input.touch),
+      ...this.getViewportSize()
+    });
+
+    if (!this.orientationHint) {
+      return;
+    }
+
+    const blocked = this.bootOrientationState.startBlocked;
+    this.orientationHint.setText(this.bootOrientationState.hint);
+    this.orientationHint.setVisible(blocked);
+    this.orientationHint.setAlpha(blocked ? 1 : 0);
+    this.startButton.setFillStyle(0xf2b84b, blocked ? 0.14 : 0.32);
+    this.startButton.setStrokeStyle(2, 0xf2b84b, blocked ? 0.22 : 0.64);
+    this.startLabel.setColor(blocked ? '#b6a58b' : '#fff3d1');
+    this.startLabel.setAlpha(blocked ? 0.78 : 1);
+    this.hotkeyStart?.setAlpha(blocked ? 0.5 : 1);
+  }
+
+  pulseOrientationHint() {
+    if (!this.orientationHint?.visible) {
+      return;
+    }
+    this.tweens.killTweensOf(this.orientationHint);
+    this.orientationHint.setAlpha(0.7);
+    this.tweens.add({
+      targets: this.orientationHint,
+      alpha: 1,
+      duration: 120,
+      yoyo: true,
+      repeat: 1,
+      ease: 'Sine.InOut'
+    });
+  }
+
   startFromBoot() {
+    this.updateLaunchAvailability();
+    if (this.bootOrientationState?.startBlocked) {
+      this.playUiPing({ frequency: 250, duration: 0.05, gain: 0.01 });
+      this.pulseOrientationHint();
+      return;
+    }
+
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
     this.playUiPing({ frequency: 690, duration: 0.07, gain: 0.014 });
 

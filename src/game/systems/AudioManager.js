@@ -335,7 +335,7 @@ export class AudioManager {
   playShot(weapon) {
     const isMortar = weapon.id === 'mortar';
     const isSplit = weapon.id.startsWith('split');
-    const isBouncer = weapon.id === 'bouncer';
+    const isBouncer = weapon.id === 'bouncer' || weapon.id === 'hopper';
 
     this.sweep({
       from: isMortar ? 220 : isSplit ? 320 : isBouncer ? 250 : 280,

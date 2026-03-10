@@ -25,6 +25,7 @@ export class UIScene extends Phaser.Scene {
     this.gameoverMaxScroll = 0;
     this.gameoverBodyBaseY = 0;
     this.lastHudState = null;
+    this.lastObjectiveNoticeKey = null;
     this.dialogScrollY = 0;
     this.dialogMaxScroll = 0;
     this.dialogBodyBaseY = 0;
@@ -94,6 +95,17 @@ export class UIScene extends Phaser.Scene {
       .setDepth(102);
 
     this.timerBar = this.add.graphics().setDepth(103);
+    this.phaseBadgeText = this.add
+      .text(0, 0, 'MOVE', {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '24px',
+        fontStyle: 'bold',
+        color: '#dff9f5',
+        align: 'right'
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(104)
+      .setStroke('#08121a', 5);
     this.timerText = this.add
       .text(GAME_WIDTH * 0.5, 74, '', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
@@ -107,14 +119,20 @@ export class UIScene extends Phaser.Scene {
     this.objectiveText = this.add
       .text(GAME_WIDTH * 0.5, 118, '', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
-        fontSize: '14px',
+        fontSize: '13px',
         color: '#d7e9aa',
         align: 'center',
-        backgroundColor: 'rgba(9,19,27,0.72)',
-        padding: { x: 12, y: 5 }
+        padding: { x: 10, y: 2 }
       })
       .setOrigin(0.5, 0)
-      .setDepth(102);
+      .setDepth(102)
+      .setVisible(false);
+    this.objectiveBacking = this.add
+      .rectangle(GAME_WIDTH * 0.5, 118, 720, 22, 0x09131b, 0.72)
+      .setOrigin(0.5, 0)
+      .setDepth(101.5)
+      .setVisible(false);
+    this.objectiveBacking.setStrokeStyle(1, 0xffffff, 0.08);
 
     this.controlsText = this.add
       .text(
@@ -135,15 +153,15 @@ export class UIScene extends Phaser.Scene {
     this.mobileWeaponButton = this.add
       .text(0, 0, 'Weapon ▶', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
-        fontSize: '14px',
+        fontSize: '24px',
         fontStyle: 'bold',
-        color: '#f4f1df',
-        backgroundColor: 'rgba(11,22,30,0.9)',
-        padding: { x: 10, y: 6 }
+        color: '#f2b84b',
+        align: 'left'
       })
-      .setOrigin(1, 1)
-      .setDepth(110)
-      .setVisible(this.isTouchDevice)
+      .setOrigin(0, 0.5)
+      .setDepth(104)
+      .setStroke('#08121a', 5)
+      .setVisible(true)
       .setInteractive({ useHandCursor: true });
     this.mobileHelpButton = this.add
       .text(0, 0, 'Help (H)', {
@@ -1437,12 +1455,65 @@ export class UIScene extends Phaser.Scene {
     this.orientationGuard?.update();
   }
 
+  getWeaponRarityColor(rarity) {
+    if (rarity === 'epic') {
+      return '#d9c6ff';
+    }
+    if (rarity === 'rare') {
+      return '#7fe7dc';
+    }
+    return '#f4f1df';
+  }
+
+  showObjectiveNotice(text) {
+    if (!text) {
+      this.hideObjectiveNotice(true);
+      return;
+    }
+
+    this.tweens.killTweensOf([this.objectiveBacking, this.objectiveText]);
+    this.objectiveHideTimer?.remove(false);
+    this.objectiveHideTimer = null;
+    this.objectiveText.setText(text);
+    this.objectiveBacking.setVisible(true);
+    this.objectiveText.setVisible(true);
+    this.objectiveBacking.setAlpha(1);
+    this.objectiveText.setAlpha(1);
+
+    this.objectiveHideTimer = this.time.delayedCall(3000, () => {
+      this.tweens.add({
+        targets: [this.objectiveBacking, this.objectiveText],
+        alpha: 0,
+        duration: 220,
+        ease: 'Quad.Out',
+        onComplete: () => {
+          this.objectiveBacking.setVisible(false);
+          this.objectiveText.setVisible(false);
+        }
+      });
+      this.objectiveHideTimer = null;
+    });
+  }
+
+  hideObjectiveNotice(immediate = false) {
+    this.objectiveHideTimer?.remove(false);
+    this.objectiveHideTimer = null;
+    this.tweens.killTweensOf([this.objectiveBacking, this.objectiveText]);
+    if (immediate) {
+      this.objectiveBacking.setAlpha(0);
+      this.objectiveText.setAlpha(0);
+    }
+    this.objectiveBacking.setVisible(false);
+    this.objectiveText.setVisible(false);
+  }
+
   // ── Frame / HUD chrome ────────────────────────────────────────────────────────
   computeHudLayout() {
     const frameX = 16;
     const frameY = 14;
     const frameW = GAME_WIDTH - 32;
-    const frameH = this.compactLayout ? 116 : 132;
+    const baseFrameH = this.compactLayout ? 116 : 132;
+    const frameH = baseFrameH;
     const sideW = this.compactLayout ? 280 : 304;
     const sectionGap = this.compactLayout ? 10 : 12;
     const innerPad = 12;
@@ -1451,25 +1522,27 @@ export class UIScene extends Phaser.Scene {
       x: frameX + innerPad,
       y: frameY + 10,
       w: sideW,
-      h: frameH - 20
+      h: baseFrameH - 20
     };
     const rightBox = {
       x: frameX + frameW - innerPad - sideW,
       y: frameY + 10,
       w: sideW,
-      h: frameH - 20
+      h: baseFrameH - 20
     };
     const centerLeft = leftBox.x + leftBox.w + sectionGap;
     const centerRight = rightBox.x - sectionGap;
     const centerW = Math.max(360, centerRight - centerLeft);
     const centerX = centerLeft + centerW * 0.5;
-    const objectiveY = frameY + frameH + (this.compactLayout ? 8 : 12);
+    const actionY = frameY + frameH + (this.compactLayout ? 22 : 26);
+    const objectiveY = actionY + (this.compactLayout ? 30 : 34);
 
     return {
       frameX,
       frameY,
       frameW,
       frameH,
+      baseFrameH,
       leftBox,
       rightBox,
       centerX,
@@ -1480,9 +1553,10 @@ export class UIScene extends Phaser.Scene {
       moveTimerBarY: frameY + (this.compactLayout ? 68 : 74),
       aimTimerBarY: frameY + (this.compactLayout ? 80 : 86),
       timerTextY: frameY + (this.compactLayout ? 90 : 98),
-      hpBarY: frameY + frameH - 20,
+      hpBarY: frameY + baseFrameH - 20,
+      actionY,
       objectiveY,
-      objectiveW: this.compactLayout ? 760 : 860
+      objectiveW: this.compactLayout ? 620 : 720
     };
   }
 
@@ -1509,28 +1583,11 @@ export class UIScene extends Phaser.Scene {
     this.panel.lineStyle(1, 0xffffff, 0.08);
     this.panel.beginPath();
     this.panel.moveTo(h.centerLeft - 6, h.frameY + 14);
-    this.panel.lineTo(h.centerLeft - 6, h.frameY + h.frameH - 14);
+    this.panel.lineTo(h.centerLeft - 6, h.frameY + h.baseFrameH - 14);
     this.panel.moveTo(h.centerLeft + h.centerW + 6, h.frameY + 14);
-    this.panel.lineTo(h.centerLeft + h.centerW + 6, h.frameY + h.frameH - 14);
+    this.panel.lineTo(h.centerLeft + h.centerW + 6, h.frameY + h.baseFrameH - 14);
     this.panel.strokePath();
 
-    // Objective ribbon gets its own lane to avoid overlap with top HUD lines.
-    this.panel.fillStyle(0x09131b, 0.7);
-    this.panel.fillRoundedRect(
-      GAME_WIDTH * 0.5 - h.objectiveW * 0.5,
-      h.objectiveY - 4,
-      h.objectiveW,
-      30,
-      12
-    );
-    this.panel.lineStyle(1, 0xffffff, 0.08);
-    this.panel.strokeRoundedRect(
-      GAME_WIDTH * 0.5 - h.objectiveW * 0.5,
-      h.objectiveY - 4,
-      h.objectiveW,
-      30,
-      12
-    );
   }
 
   setStartMode(mode) {
@@ -1578,22 +1635,26 @@ export class UIScene extends Phaser.Scene {
     this.rightText.setFontSize(this.compactLayout ? '16px' : '18px');
     this.centerText.setFontSize(this.compactLayout ? '14px' : '16px');
     this.windText.setFontSize(this.compactLayout ? '13px' : '15px');
-    this.objectiveText.setFontSize(this.compactLayout ? '12px' : '14px');
+    this.objectiveText.setFontSize(this.compactLayout ? '11px' : '12px');
     this.controlsText.setFontSize(this.compactLayout ? '14px' : '16px');
     this.controlsText.setWordWrapWidth(this.compactLayout ? 860 : 1120, true);
-    this.mobileWeaponButton.setPosition(GAME_WIDTH - 22, GAME_HEIGHT - 58);
+    this.mobileWeaponButton.setPosition(h.frameX + 8, h.actionY);
     this.mobileHelpButton.setPosition(GAME_WIDTH - 138, GAME_HEIGHT - 58);
-    this.mobileWeaponButton.setFontSize(this.compactLayout ? '12px' : '14px');
+    this.mobileWeaponButton.setFontSize(this.compactLayout ? '20px' : '24px');
     this.mobileHelpButton.setFontSize(this.compactLayout ? '12px' : '14px');
+    this.phaseBadgeText.setFontSize(this.compactLayout ? '20px' : '24px');
+    this.phaseBadgeText.setPosition(h.frameX + h.frameW - 8, h.actionY);
     this.leftText.setPosition(h.leftBox.x + 12, h.textTopY);
     this.rightText.setPosition(h.rightBox.x + h.rightBox.w - 12, h.textTopY);
     this.centerText.setPosition(h.centerX, h.textTopY);
     this.windText.setPosition(h.centerX, h.windY);
     this.timerText.setPosition(h.centerX, h.timerTextY);
+    this.objectiveBacking.setPosition(h.centerX, h.objectiveY);
+    this.objectiveBacking.setSize(h.objectiveW, 22);
     this.objectiveText.setPosition(h.centerX, h.objectiveY);
     this.leftText.setWordWrapWidth(h.leftBox.w - 24, true);
     this.rightText.setWordWrapWidth(h.rightBox.w - 24, true);
-    this.centerText.setWordWrapWidth(h.centerW - 16, true);
+    this.centerText.setWordWrapWidth(h.centerW - 48, true);
     this.windText.setWordWrapWidth(h.centerW - 16, true);
     this.objectiveText.setWordWrapWidth(h.objectiveW - 24, true);
     const activeOverlayType = this.gameScene?.overlayState?.type;
@@ -1792,6 +1853,7 @@ export class UIScene extends Phaser.Scene {
         : state.windDirection === 'RIGHT'
           ? '#f2b84b'
           : '#f4f1df';
+    const isMovePhase = state.phase === 'move';
     const red = (activeColor >> 16) & 255;
     const green = (activeColor >> 8) & 255;
     const blue = activeColor & 255;
@@ -1824,11 +1886,16 @@ export class UIScene extends Phaser.Scene {
     ].join('\n'));
     this.centerText.setColor(`rgb(${red}, ${green}, ${blue})`);
     this.windText.setColor(windColor);
-    this.objectiveText.setText(
-      latestFeed
-        ? `Goal: ${state.objective}\nArcade: ${latestFeed}`
-        : `Goal: ${state.objective}`
-    );
+    this.phaseBadgeText.setText(isMovePhase ? 'MOVE' : 'AIM&SHOOT');
+    this.phaseBadgeText.setColor(isMovePhase ? '#dff9f5' : '#fff2cf');
+    const objectiveSummary = latestFeed
+      ? `Goal: Enemy to 0 HP  |  ${latestFeed}`
+      : 'Goal: Enemy to 0 HP';
+    const objectiveNoticeKey = `${state.turnNumber}|${latestFeed}|${objectiveSummary}`;
+    if (objectiveNoticeKey !== this.lastObjectiveNoticeKey) {
+      this.lastObjectiveNoticeKey = objectiveNoticeKey;
+      this.showObjectiveNotice(objectiveSummary);
+    }
     this.windText.setText(
       `Wind ${state.windDirection}  |  ${state.windStrength}  |  ${Math.abs(state.wind).toFixed(0)}  |  ${state.windEffect}`
     );
@@ -1862,7 +1929,7 @@ export class UIScene extends Phaser.Scene {
         ? state.winner
           ? `${state.winner} wins  |  Click/Tap or (R) for a new map`
           : 'Draw  |  Click/Tap or (R) for a new map'
-        : `${state.mode}${weatherTag}${mutatorTag}${motionTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName} ${state.phase.toUpperCase()}  |  Power ${state.players[state.activePlayerIndex].power}  |  Move ${state.remainingMove.toFixed(0)}`
+        : `${state.mode}${weatherTag}${mutatorTag}${motionTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName}  |  Power ${state.players[state.activePlayerIndex].power}`
     );
     if (state.gameOver) {
       this.controlsText.setText('Click/Tap or (R) restart  |  (V) Motion  |  (H) Help');
@@ -1877,9 +1944,14 @@ export class UIScene extends Phaser.Scene {
         'Always: (V) Motion  |  (H) Help  |  (Q)/(E) Weapon'
       ].join('\n'));
     }
+    const canSwitchWeapon = !state.gameOver && !state.isCpuTurn;
+    const activeWeapon = state.players[state.activePlayerIndex] ?? null;
+    const rarityTag = activeWeapon?.weaponRarity ? ` ${activeWeapon.weaponRarity.toUpperCase()}` : '';
+    const activeWeaponLabel = activeWeapon?.weaponLabel ?? activeWeapon?.weapon ?? 'Weapon';
+    this.mobileWeaponButton.setColor(this.getWeaponRarityColor(activeWeapon?.weaponRarity));
+    this.mobileWeaponButton.setText(`Weapon ▶ ${activeWeaponLabel}${rarityTag}`);
+    this.mobileWeaponButton.setAlpha(canSwitchWeapon ? 1 : 0.55);
     if (this.isTouchDevice) {
-      const canSwitch = !state.gameOver && !state.isCpuTurn;
-      this.mobileWeaponButton.setAlpha(canSwitch ? 1 : 0.55);
       this.mobileHelpButton.setAlpha(1);
     }
     this.refreshShortcutButtons();
@@ -1959,8 +2031,8 @@ export class UIScene extends Phaser.Scene {
     this.startActionBacking.setVisible(isStart);
     this.startHowToPlayText.setVisible(isStart);
     this.startSwitchModeText.setVisible(isStart);
+    this.mobileWeaponButton.setVisible(!visible);
     if (this.isTouchDevice) {
-      this.mobileWeaponButton.setVisible(!visible);
       this.mobileHelpButton.setVisible(true);
     }
 
@@ -2071,23 +2143,24 @@ export class UIScene extends Phaser.Scene {
       // Hide game HUD elements while on the start screen
       this.panel.setVisible(false);
       this.hpBars.setVisible(false);
+      this.phaseBadgeText.setVisible(false);
       this.leftText.setVisible(false);
       this.rightText.setVisible(false);
       this.centerText.setVisible(false);
       this.windText.setVisible(false);
       this.timerBar.setVisible(false);
       this.timerText.setVisible(false);
-      this.objectiveText.setVisible(false);
+      this.hideObjectiveNotice(true);
       this.controlsText.setVisible(false);
     } else {
       // Restore HUD visibility for other overlays (like help or turn)
       this.panel.setVisible(true);
       this.hpBars.setVisible(true);
+      this.phaseBadgeText.setVisible(true);
       this.leftText.setVisible(true);
       this.rightText.setVisible(true);
       this.centerText.setVisible(true);
       this.windText.setVisible(true);
-      this.objectiveText.setVisible(true);
       this.controlsText.setVisible(true);
     }
     if (isUnified) {

@@ -22,6 +22,10 @@ function parseArgs(argv) {
     actionsJson: null,
     click: null,
     clickSelector: null,
+    viewportWidth: null,
+    viewportHeight: null,
+    hasTouch: false,
+    isMobile: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i];
@@ -61,6 +65,18 @@ function parseArgs(argv) {
       i++;
     } else if (arg === "--click-selector" && next) {
       args.clickSelector = next;
+      i++;
+    } else if (arg === "--viewport-width" && next) {
+      args.viewportWidth = parseInt(next, 10);
+      i++;
+    } else if (arg === "--viewport-height" && next) {
+      args.viewportHeight = parseInt(next, 10);
+      i++;
+    } else if (arg === "--has-touch" && next) {
+      args.hasTouch = next !== "0" && next !== "false";
+      i++;
+    } else if (arg === "--is-mobile" && next) {
+      args.isMobile = next !== "0" && next !== "false";
       i++;
     }
   }
@@ -299,7 +315,21 @@ async function main() {
   }
   const browser = await chromium.launch(launchOptions);
   debugLog("browser:launched");
-  const page = await browser.newPage();
+  const contextOptions = {};
+  if (Number.isFinite(args.viewportWidth) && Number.isFinite(args.viewportHeight)) {
+    contextOptions.viewport = {
+      width: args.viewportWidth,
+      height: args.viewportHeight,
+    };
+  }
+  if (args.hasTouch) {
+    contextOptions.hasTouch = true;
+  }
+  if (args.isMobile || args.hasTouch) {
+    contextOptions.isMobile = true;
+  }
+  const context = await browser.newContext(contextOptions);
+  const page = await context.newPage();
   debugLog("page:created");
   const consoleErrors = new ConsoleErrorTracker();
 
@@ -393,6 +423,7 @@ async function main() {
   }
 
   debugLog("browser:close");
+  await context.close();
   await browser.close();
   debugLog("main:done");
 }

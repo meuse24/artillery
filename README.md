@@ -74,6 +74,7 @@ Desktop (Keyboard + Maus):
 - `Aim/Fire`: `Left / Right` setzt die Schusskraft (zusaetzlich weiterhin Mausrad/Drag moeglich)
 - `Aim/Fire`: `Space` feuert (zusaetzlich `Click`/Release)
 - `Q / E`: Waffe wechseln (ueberspringt leere Waffen automatisch)
+- Waffenlabel unter dem HUD zeigt aktive Waffe prominent, inklusive `COMMON` / `RARE` / `EPIC`
 - `Enter` oder `Space`: Overlay-Aktion (`PRESS BUTTON`)
 - `H`: Help-Screen oeffnen/schliessen
 - `Esc`: Help-Screen schliessen
@@ -86,7 +87,7 @@ Mobile (Touch, Landscape):
 - `Tap` auf eigenen Tank: Move-Phase beenden
 - `Drag` in Aim-Phase: Winkel + Power gleichzeitig
 - `Touch loslassen`: feuern
-- `Weapon`-Button unten rechts: Waffe wechseln
+- prominentes `Weapon`-Label unter dem HUD: Waffe wechseln
 - `Help`-Button unten rechts: Hilfe oeffnen/schliessen
 - Beim ersten Touch versucht das Spiel `Fullscreen` + `Landscape-Lock` (Browser-abhaengig).
 - Der Help-Screen zeigt die Controls als HTML-Tabelle innerhalb eines scrollbaren Dialog-Textbereichs.
@@ -104,8 +105,17 @@ Mobile (Touch, Landscape):
   - prallt bis zu dreimal am Terrain ab, bevor er explodiert
   - Abprallwinkel folgt der lokalen Hangneiung
   - die Flugbahn-Vorschau markiert den ersten Aufprallpunkt mit einem Ring
+- `Rail Slug` — 3 Schuss pro Match, `RARE`
+  - sehr schnell, praezise, geringe Wind- und Schwerkraftanfaelligkeit
+  - kleiner Splash, dafuer hoher Direktschaden
+- `Storm Shards` — 2 Schuss pro Match, `EPIC`
+  - teilt sich frueh in fünf Bomblets
+  - stark fuer Flaechendruck und unruhiges Terrain
+- `Hopper Mine` — 2 Schuss pro Match, `RARE`
+  - springt bis zu viermal am Terrain entlang
+  - stark zum Aushebeln von Deckung und Kanten
 
-Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber Muzzle-Flash, Trail, Explosion und Schadenstext. Die verbleibende Munition steht im HUD neben dem Waffennamen.
+Die Waffen unterscheiden sich nicht nur mechanisch, sondern auch visuell ueber Muzzle-Flash, Trail, Explosion und Schadenstext. Die verbleibende Munition steht im HUD neben dem Waffennamen; das prominente Waffenlabel unter dem HUD ist zusaetzlich farblich nach Rarity codiert.
 
 ## Terrain-Presets
 
@@ -232,6 +242,8 @@ Test-Workflow:
 - kurzer Hit-Stop bei starken Treffern fuer mehr Impact
 - Kamera-Fokus bei Schuss und Einschlag
 - responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten
+- prominente Waffenwahl und Phasenanzeige unterhalb des HUD-Rahmens statt im HUD-Frame
+- Objective-Zeile blendet bei neuen Turn-/Feed-Infos kurz ein und nach 3 Sekunden wieder aus
 - generiertes Audio ohne externe Assets
 - Phase-1-Arcade-Foundation: Event-Bus, konfigurierbare Feature-Flags, getrennte Scoring-/Mutator-Systeme als Erweiterungsschicht
 - Phase-2-Arcade-Scoring: Combo-Multiplikator, Skillshots (`DIRECT HIT`, `BANK SHOT`, `LONG SHOT`, `LAST SECOND`) und Live-Score im HUD
@@ -258,6 +270,8 @@ Test-Workflow:
   - HUD, HP-Bars, Zugtimer-Balken, Controls-Hinweise, Overlay-Layout, mobile Buttons, Portrait/Landscape-Guard und responsive Anpassungen
   - einheitliches Dialog-Rendering fuer Turn-/Help-/GameOver inklusive Header/Text/Footer-Bereichen
   - Turn-Handoff-Dialoge verwenden ein eigenes kompakteres Layout mit reduzierter Abdunklung
+  - Waffenlabel und Phasenanzeige sind als große, externe Labels unterhalb des HUDs angeordnet
+  - Objective-Hinweis wird kurz eingeblendet und nach 3 Sekunden ausgefadet
   - Help-Overlay mit HTML-Controls-Tabelle im scrollbaren DOM-Panel + Fallback-Textmodus
   - Dialog-Scrolling ueber Mausrad, Pfeiltasten/PageUp/PageDown/Home/End sowie Touch-/Mouse-Drag
 - `src/game/scenes/backgroundMusicModel.js`
