@@ -1560,6 +1560,23 @@ export class UIScene extends Phaser.Scene {
     };
   }
 
+  reflowCenterColumn() {
+    const h = this.hudLayout;
+    if (!h) return;
+    const gap = this.compactLayout ? 4 : 6;
+    const centerBottom = this.centerText.y + this.centerText.displayHeight;
+    const windY = Math.max(h.windY, centerBottom + gap);
+    this.windText.setY(windY);
+    const windBottom = windY + this.windText.displayHeight;
+    const moveBarY = Math.max(h.moveTimerBarY, windBottom + gap);
+    const aimBarY = moveBarY + 12;
+    const timerTextY = aimBarY + 12;
+    this.hudLayout.liveTimerBarY = moveBarY;
+    this.hudLayout.liveAimTimerBarY = aimBarY;
+    this.hudLayout.liveTimerTextY = timerTextY;
+    this.timerText.setY(timerTextY);
+  }
+
   drawFrame() {
     this.hudLayout = this.hudLayout ?? this.computeHudLayout();
     const h = this.hudLayout;
@@ -1662,6 +1679,7 @@ export class UIScene extends Phaser.Scene {
     this.centerText.setWordWrapWidth(h.centerW - 48, true);
     this.windText.setWordWrapWidth(h.centerW - 16, true);
     this.objectiveText.setWordWrapWidth(h.objectiveW - 24, true);
+    this.reflowCenterColumn();
     const activeOverlayType = this.gameScene?.overlayState?.type;
     if (activeOverlayType === 'start') {
       this.overlayPanel.width = this.compactLayout ? 980 : 940;
@@ -1983,6 +2001,7 @@ export class UIScene extends Phaser.Scene {
           : 'Draw  |  Click/Tap or (R) for a new map'
         : `${state.mode}${weatherTag}${mutatorTag}${motionTag}  |  Turn ${state.turnNumber}  |  ${state.activePlayerName}  |  Power ${state.players[state.activePlayerIndex].power}`
     );
+    this.reflowCenterColumn();
     if (state.gameOver) {
       this.controlsText.setText('Click/Tap or (R) restart  |  (V) Motion  |  (H) Help');
     } else if (state.phase === 'move') {
@@ -2389,7 +2408,7 @@ export class UIScene extends Phaser.Scene {
       const ratio = Phaser.Math.Clamp(remaining / Math.max(1, total), 0, 1);
       const barWidth = this.compactLayout ? 96 : 114;
       const barX = h.centerX - barWidth * 0.5;
-      const barY = h.moveTimerBarY;
+      const barY = h.liveTimerBarY ?? h.moveTimerBarY;
       const urgent = remaining <= 5;
       const color = urgent ? 0xff4444 : remaining <= 10 ? 0xf2b84b : 0x7fe7dc;
 
@@ -2399,7 +2418,7 @@ export class UIScene extends Phaser.Scene {
       this.timerBar.fillRoundedRect(barX, barY, Math.round(barWidth * ratio), 6, 3);
       this.timerText.setText(`${Math.ceil(remaining)}s`);
       this.timerText.setColor(urgent ? '#ff6666' : '#f4f1df');
-      this.timerText.setY(h.timerTextY);
+      this.timerText.setY(h.liveTimerTextY ?? h.timerTextY);
       return;
     }
 
@@ -2432,12 +2451,12 @@ export class UIScene extends Phaser.Scene {
       this.timerBar.fillRoundedRect(barX, y, Math.round(barWidth * ratio), 6, 3);
     };
 
-    drawPhaseBar(move.remaining, move.total, h.moveTimerBarY, 0x7fe7dc, activePhase === 'move');
-    drawPhaseBar(aim.remaining, aim.total, h.aimTimerBarY, 0xf2b84b, activePhase === 'aim');
+    drawPhaseBar(move.remaining, move.total, h.liveTimerBarY ?? h.moveTimerBarY, 0x7fe7dc, activePhase === 'move');
+    drawPhaseBar(aim.remaining, aim.total, h.liveAimTimerBarY ?? h.aimTimerBarY, 0xf2b84b, activePhase === 'aim');
 
     this.timerText.setText(`MOVE ${Math.ceil(move.remaining ?? 0)}s  |  AIM ${Math.ceil(aim.remaining ?? 0)}s`);
     this.timerText.setColor(activePhase === 'aim' ? '#f2b84b' : '#7fe7dc');
-    this.timerText.setY(h.timerTextY);
+    this.timerText.setY(h.liveTimerTextY ?? h.timerTextY);
   }
 
   // ── Turn banner ───────────────────────────────────────────────────────────────
