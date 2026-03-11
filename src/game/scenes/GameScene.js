@@ -1741,7 +1741,7 @@ export class GameScene extends Phaser.Scene {
       x,
       y
     });
-    this.audioManager.playBounce();
+    this.audioManager.playBounce(weapon);
   }
 
   playWeaponMuzzle(x, y, weapon) {
@@ -2124,7 +2124,7 @@ export class GameScene extends Phaser.Scene {
         const damage = Math.round(weapon.damage * (1 - distance / maxDistance) * damageMultiplier);
         tank.applyDamage(damage);
         this.spawnDamageText(tank.x, tank.y - 26, damage, weapon.damageText);
-        this.audioManager.playHit(damage);
+        this.audioManager.playHit(damage, weapon);
         if (damage > 0) {
           bestHitDistance = Math.min(bestHitDistance, distance);
         }
