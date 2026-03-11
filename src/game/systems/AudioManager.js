@@ -19,6 +19,17 @@ export class AudioManager {
     this.drivePulseGain = null;
     this.driveTone = null;
     this.driveToneGain = null;
+    // Heavy tank additions
+    this.driveClatterSource = null;
+    this.driveClatterBandpass = null;
+    this.driveClatterGain = null;
+    this.driveClatterPulse = null;
+    this.driveClatterPulseGain = null;
+    this.driveRumbleTone = null;
+    this.driveRumbleGain = null;
+    this.driveRattle = null;
+    this.driveRattleGain = null;
+    this.driveDistortion = null;
   }
 
   setMuted(muted) {
@@ -37,6 +48,12 @@ export class AudioManager {
       this.driveToneGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
       this.drivePulseGain?.gain.cancelScheduledValues(now);
       this.drivePulseGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.driveClatterGain?.gain.cancelScheduledValues(now);
+      this.driveClatterGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.driveRumbleGain?.gain.cancelScheduledValues(now);
+      this.driveRumbleGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
+      this.driveRattleGain?.gain.cancelScheduledValues(now);
+      this.driveRattleGain?.gain.linearRampToValueAtTime(0.0001, now + 0.08);
       return;
     }
 
@@ -216,58 +233,133 @@ export class AudioManager {
     this.windLfo.start();
   }
 
+  createDistortionCurve(amount) {
+    const samples = 256;
+    const curve = new Float32Array(samples);
+    for (let i = 0; i < samples; i++) {
+      const x = (i * 2) / samples - 1;
+      curve[i] = ((Math.PI + amount) * x) / (Math.PI + amount * Math.abs(x));
+    }
+    return curve;
+  }
+
   ensureDriveLoop() {
     if (!this.context || this.driveSource) {
       return;
     }
 
     this.createNoiseBuffer();
+    const t = this.context.currentTime;
 
+    // ── Main engine rumble noise ────────────────────────────────────
     this.driveSource = this.context.createBufferSource();
     this.driveSource.buffer = this.noiseBuffer;
     this.driveSource.loop = true;
 
     this.driveBandpass = this.context.createBiquadFilter();
     this.driveBandpass.type = 'bandpass';
-    this.driveBandpass.frequency.setValueAtTime(180, this.context.currentTime);
-    this.driveBandpass.Q.value = 1.1;
+    this.driveBandpass.frequency.setValueAtTime(140, t);
+    this.driveBandpass.Q.value = 1.8;
 
     this.driveLowpass = this.context.createBiquadFilter();
     this.driveLowpass.type = 'lowpass';
-    this.driveLowpass.frequency.setValueAtTime(900, this.context.currentTime);
-    this.driveLowpass.Q.value = 0.55;
+    this.driveLowpass.frequency.setValueAtTime(800, t);
+    this.driveLowpass.Q.value = 0.7;
+
+    // Waveshaper distortion for gritty diesel engine character
+    this.driveDistortion = this.context.createWaveShaper();
+    this.driveDistortion.curve = this.createDistortionCurve(12);
+    this.driveDistortion.oversample = '2x';
 
     this.driveGain = this.context.createGain();
-    this.driveGain.gain.setValueAtTime(0.0001, this.context.currentTime);
+    this.driveGain.gain.setValueAtTime(0.0001, t);
 
+    // Engine firing pulse – slow thudding like a diesel
     this.drivePulse = this.context.createOscillator();
-    this.drivePulse.type = 'triangle';
-    this.drivePulse.frequency.setValueAtTime(9, this.context.currentTime);
+    this.drivePulse.type = 'square';
+    this.drivePulse.frequency.setValueAtTime(6, t);
 
     this.drivePulseGain = this.context.createGain();
-    this.drivePulseGain.gain.setValueAtTime(0.00045, this.context.currentTime);
+    this.drivePulseGain.gain.setValueAtTime(0.0006, t);
 
+    // Low engine tone – diesel rumble
     this.driveTone = this.context.createOscillator();
-    this.driveTone.type = 'square';
-    this.driveTone.frequency.setValueAtTime(42, this.context.currentTime);
+    this.driveTone.type = 'sawtooth';
+    this.driveTone.frequency.setValueAtTime(28, t);
 
     this.driveToneGain = this.context.createGain();
-    this.driveToneGain.gain.setValueAtTime(0.0001, this.context.currentTime);
+    this.driveToneGain.gain.setValueAtTime(0.0001, t);
 
     this.driveSource.connect(this.driveBandpass);
     this.driveBandpass.connect(this.driveLowpass);
-    this.driveLowpass.connect(this.driveGain);
+    this.driveLowpass.connect(this.driveDistortion);
+    this.driveDistortion.connect(this.driveGain);
     this.driveGain.connect(this.context.destination);
 
     this.driveTone.connect(this.driveToneGain);
-    this.driveToneGain.connect(this.driveGain);
+    this.driveToneGain.connect(this.driveDistortion);
 
     this.drivePulse.connect(this.drivePulseGain);
     this.drivePulseGain.connect(this.driveGain.gain);
 
+    // ── Track clatter layer – metallic rattling ─────────────────────
+    this.driveClatterSource = this.context.createBufferSource();
+    this.driveClatterSource.buffer = this.noiseBuffer;
+    this.driveClatterSource.loop = true;
+
+    this.driveClatterBandpass = this.context.createBiquadFilter();
+    this.driveClatterBandpass.type = 'bandpass';
+    this.driveClatterBandpass.frequency.setValueAtTime(1800, t);
+    this.driveClatterBandpass.Q.value = 3.5;
+
+    this.driveClatterGain = this.context.createGain();
+    this.driveClatterGain.gain.setValueAtTime(0.0001, t);
+
+    // Fast pulse to chop the noise into rapid clicks = track links
+    this.driveClatterPulse = this.context.createOscillator();
+    this.driveClatterPulse.type = 'square';
+    this.driveClatterPulse.frequency.setValueAtTime(14, t);
+
+    this.driveClatterPulseGain = this.context.createGain();
+    this.driveClatterPulseGain.gain.setValueAtTime(0.001, t);
+
+    this.driveClatterSource.connect(this.driveClatterBandpass);
+    this.driveClatterBandpass.connect(this.driveClatterGain);
+    this.driveClatterGain.connect(this.context.destination);
+
+    this.driveClatterPulse.connect(this.driveClatterPulseGain);
+    this.driveClatterPulseGain.connect(this.driveClatterGain.gain);
+
+    // ── Deep sub-bass rumble tone ───────────────────────────────────
+    this.driveRumbleTone = this.context.createOscillator();
+    this.driveRumbleTone.type = 'sine';
+    this.driveRumbleTone.frequency.setValueAtTime(22, t);
+
+    this.driveRumbleGain = this.context.createGain();
+    this.driveRumbleGain.gain.setValueAtTime(0.0001, t);
+
+    this.driveRumbleTone.connect(this.driveRumbleGain);
+    this.driveRumbleGain.connect(this.context.destination);
+
+    // ── Mechanical rattle – high-mid metallic resonance ─────────────
+    this.driveRattle = this.context.createOscillator();
+    this.driveRattle.type = 'square';
+    this.driveRattle.frequency.setValueAtTime(68, t);
+
+    this.driveRattleGain = this.context.createGain();
+    this.driveRattleGain.gain.setValueAtTime(0.0001, t);
+
+    this.driveRattle.connect(this.driveRattleGain);
+    this.driveRattleGain.connect(this.driveDistortion);
+
+    // Start all sources
     this.driveSource.start();
     this.driveTone.start();
     this.drivePulse.start();
+    this.driveClatterSource.start();
+    this.driveClatterPulse.start();
+    this.driveRumbleTone.start();
+    this.driveRattle.start();
   }
 
   setDrive(active, intensity = 1) {
@@ -281,29 +373,65 @@ export class AudioManager {
     }
     const amount = Math.max(0, Math.min(1, intensity));
     const now = this.context.currentTime;
-    const targetNoise = active ? 0.00135 + amount * 0.0031 : 0.0001;
-    const targetTone = active ? 0.00042 + amount * 0.00115 : 0.0001;
-    const targetPulse = active ? 0.00072 + amount * 0.0009 : 0.0002;
-    const pulseFreq = active ? 8 + amount * 9 : 5;
-    const toneFreq = active ? 36 + amount * 26 : 30;
-    const bandFreq = active ? 150 + amount * 230 : 130;
-    const lowFreq = active ? 640 + amount * 940 : 560;
-    const ramp = active ? 0.07 : 0.14;
+    const ramp = active ? 0.06 : 0.18;
 
+    // Main engine noise – much louder and grittier
+    const targetNoise = active ? 0.006 + amount * 0.012 : 0.0001;
+    const bandFreq = active ? 110 + amount * 180 : 100;
+    const lowFreq = active ? 500 + amount * 1200 : 400;
     this.driveBandpass.frequency.cancelScheduledValues(now);
     this.driveBandpass.frequency.linearRampToValueAtTime(bandFreq, now + ramp);
     this.driveLowpass.frequency.cancelScheduledValues(now);
     this.driveLowpass.frequency.linearRampToValueAtTime(lowFreq, now + ramp);
     this.driveGain.gain.cancelScheduledValues(now);
     this.driveGain.gain.linearRampToValueAtTime(targetNoise, now + ramp);
+
+    // Diesel engine tone – deep sawtooth growl
+    const targetTone = active ? 0.0018 + amount * 0.004 : 0.0001;
+    const toneFreq = active ? 24 + amount * 22 : 20;
     this.driveToneGain.gain.cancelScheduledValues(now);
     this.driveToneGain.gain.linearRampToValueAtTime(targetTone, now + ramp);
+    this.driveTone.frequency.cancelScheduledValues(now);
+    this.driveTone.frequency.linearRampToValueAtTime(toneFreq, now + ramp);
+
+    // Engine firing pulse – slow thudding
+    const targetPulse = active ? 0.0018 + amount * 0.003 : 0.0003;
+    const pulseFreq = active ? 5 + amount * 7 : 3;
     this.drivePulseGain.gain.cancelScheduledValues(now);
     this.drivePulseGain.gain.linearRampToValueAtTime(targetPulse, now + ramp);
     this.drivePulse.frequency.cancelScheduledValues(now);
     this.drivePulse.frequency.linearRampToValueAtTime(pulseFreq, now + ramp);
-    this.driveTone.frequency.cancelScheduledValues(now);
-    this.driveTone.frequency.linearRampToValueAtTime(toneFreq, now + ramp);
+
+    // Track clatter – rapid metallic clicking
+    const targetClatter = active ? 0.0025 + amount * 0.005 : 0.0001;
+    const clatterBand = active ? 1400 + amount * 1600 : 1200;
+    const clatterPulseFreq = active ? 12 + amount * 22 : 8;
+    this.driveClatterGain.gain.cancelScheduledValues(now);
+    this.driveClatterGain.gain.linearRampToValueAtTime(targetClatter, now + ramp);
+    this.driveClatterBandpass.frequency.cancelScheduledValues(now);
+    this.driveClatterBandpass.frequency.linearRampToValueAtTime(clatterBand, now + ramp);
+    this.driveClatterPulse.frequency.cancelScheduledValues(now);
+    this.driveClatterPulse.frequency.linearRampToValueAtTime(clatterPulseFreq, now + ramp);
+    this.driveClatterPulseGain.gain.cancelScheduledValues(now);
+    this.driveClatterPulseGain.gain.linearRampToValueAtTime(
+      active ? 0.002 + amount * 0.004 : 0.0005, now + ramp
+    );
+
+    // Sub-bass ground rumble
+    const targetRumble = active ? 0.008 + amount * 0.014 : 0.0001;
+    const rumbleFreq = active ? 18 + amount * 12 : 16;
+    this.driveRumbleGain.gain.cancelScheduledValues(now);
+    this.driveRumbleGain.gain.linearRampToValueAtTime(targetRumble, now + ramp);
+    this.driveRumbleTone.frequency.cancelScheduledValues(now);
+    this.driveRumbleTone.frequency.linearRampToValueAtTime(rumbleFreq, now + ramp);
+
+    // Mechanical rattle
+    const targetRattle = active ? 0.0006 + amount * 0.0015 : 0.0001;
+    const rattleFreq = active ? 55 + amount * 40 : 50;
+    this.driveRattleGain.gain.cancelScheduledValues(now);
+    this.driveRattleGain.gain.linearRampToValueAtTime(targetRattle, now + ramp);
+    this.driveRattle.frequency.cancelScheduledValues(now);
+    this.driveRattle.frequency.linearRampToValueAtTime(rattleFreq, now + ramp);
   }
 
   setWind(amount) {
