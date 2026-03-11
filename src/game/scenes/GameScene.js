@@ -194,6 +194,36 @@ export class GameScene extends Phaser.Scene {
     });
     this.events.once('shutdown', () => this.destroyArcadeSystems());
     this.events.once('destroy', () => this.destroyArcadeSystems());
+
+    this._focusMuted = false;
+    this._visibilityHandler = () => this.handleVisibilityChange();
+    document.addEventListener('visibilitychange', this._visibilityHandler);
+    this.events.once('shutdown', () => document.removeEventListener('visibilitychange', this._visibilityHandler));
+    this.events.once('destroy', () => document.removeEventListener('visibilitychange', this._visibilityHandler));
+  }
+
+  handleVisibilityChange() {
+    if (document.hidden) {
+      if (this._focusMuted) return;
+      this._focusMuted = true;
+      this._focusBattlePlaying = Boolean(this.battleMusicActive);
+      this.audioManager?.setMuted(true);
+      if (this.audioManager?.context?.state === 'running') {
+        this.audioManager.context.suspend().catch(() => {});
+      }
+      stopBattleSong();
+      stopTitleSong();
+    } else {
+      if (!this._focusMuted) return;
+      this._focusMuted = false;
+      if (this.audioManager?.context?.state === 'suspended') {
+        this.audioManager.context.resume().catch(() => {});
+      }
+      this.audioManager?.setMuted(!this.audioEnabled);
+      if (this.audioEnabled) {
+        this.syncTitleMusicState(this.overlayState);
+      }
+    }
   }
 
   destroyArcadeSystems() {
