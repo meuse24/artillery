@@ -2091,7 +2091,7 @@ export class UIScene extends Phaser.Scene {
     this.startSwitchModeText.setVisible(isStart);
     this.mobileWeaponButton.setVisible(!visible);
     if (this.isTouchDevice) {
-      this.mobileHelpButton.setVisible(true);
+      this.mobileHelpButton.setVisible(!isTurn);
     }
 
     if (!visible) {
@@ -2235,7 +2235,7 @@ export class UIScene extends Phaser.Scene {
       this.rightText.setVisible(true);
       this.centerText.setVisible(true);
       this.windText.setVisible(true);
-      this.controlsText.setVisible(true);
+      this.controlsText.setVisible(!isTurn);
     }
     if (isUnified) {
       // Unified turn/help/gameover dialogs render their own chrome layer.

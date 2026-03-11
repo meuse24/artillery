@@ -63,7 +63,7 @@ export class OverlayStateSystem {
       scoreboard: this.buildScoreboardText(),
       prompt: this.scene.isCpuControlledPlayer()
         ? 'CPU thinking...'
-        : 'PRESS BUTTON WHEN READY  |  (H) HELP'
+        : 'PRESS BUTTON WHEN READY'
     });
     this.scene.syncHud();
 
