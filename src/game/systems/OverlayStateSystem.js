@@ -98,7 +98,7 @@ export class OverlayStateSystem {
         this.scene.telemetrySystem?.getSummaryText() ?? ''
       ].join('\n'),
       scoreboard: this.buildScoreboardText(),
-      prompt: 'PRESS BUTTON or (R) NEW GAME  |  (M) SWITCH MODE  |  (H) HELP'
+      prompt: 'PRESS BUTTON FOR NEW GAME'
     });
   }
 

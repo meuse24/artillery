@@ -734,11 +734,6 @@ export class UIScene extends Phaser.Scene {
     const y = this.overlayPrompt.y + (this.compactLayout ? 24 : 26);
 
     if (overlay.type === 'gameover') {
-      this.layoutShortcutRow([
-        { button: this.hotkeyRestartButton, label: '(R) NEW GAME' },
-        { button: this.hotkeyModeButton, label: '(M) SWITCH MODE' },
-        { button: this.hotkeyHelpButton, label: '(H) HELP' }
-      ], { x: this.overlayPanel.x, y });
       return;
     }
 
@@ -2091,7 +2086,7 @@ export class UIScene extends Phaser.Scene {
     this.startSwitchModeText.setVisible(isStart);
     this.mobileWeaponButton.setVisible(!visible);
     if (this.isTouchDevice) {
-      this.mobileHelpButton.setVisible(!isTurn);
+      this.mobileHelpButton.setVisible(!isTurn && !isGameOver);
     }
 
     if (!visible) {
@@ -2186,7 +2181,7 @@ export class UIScene extends Phaser.Scene {
     this.overlayPrompt.setFontSize(
       overlay.type === 'start'
         ? `${startMetrics.promptFontPx}px`
-        : isTurn
+        : (isTurn || isGameOver)
           ? (this.compactLayout ? '30px' : '32px')
           : isUnified
             ? (this.compactLayout ? '18px' : '20px')
@@ -2235,7 +2230,7 @@ export class UIScene extends Phaser.Scene {
       this.rightText.setVisible(true);
       this.centerText.setVisible(true);
       this.windText.setVisible(true);
-      this.controlsText.setVisible(!isTurn);
+      this.controlsText.setVisible(!isTurn && !isGameOver);
     }
     if (isUnified) {
       // Unified turn/help/gameover dialogs render their own chrome layer.
