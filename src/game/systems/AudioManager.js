@@ -30,6 +30,10 @@ export class AudioManager {
     this.driveRattle = null;
     this.driveRattleGain = null;
     this.driveDistortion = null;
+    this.masterBus = null;
+    this.masterComp = null;
+    this.masterGain = null;
+    this.masterLimiter = null;
   }
 
   setMuted(muted) {
@@ -128,7 +132,7 @@ export class AudioManager {
     node.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
 
     oscillator.connect(node);
-    node.connect(this.context.destination);
+    node.connect(this.out());
 
     oscillator.start(startAt);
     oscillator.stop(startAt + duration + 0.03);
@@ -151,7 +155,7 @@ export class AudioManager {
     node.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
 
     oscillator.connect(node);
-    node.connect(this.context.destination);
+    node.connect(this.out());
     oscillator.start(startAt);
     oscillator.stop(startAt + duration + 0.04);
   }
@@ -184,7 +188,7 @@ export class AudioManager {
     source.connect(hp);
     hp.connect(lp);
     lp.connect(node);
-    node.connect(this.context.destination);
+    node.connect(this.out());
 
     source.start(startAt);
     source.stop(startAt + duration + 0.05);
@@ -460,19 +464,53 @@ export class AudioManager {
     this.windLfoGain.gain.linearRampToValueAtTime(0.0003 + strength * 0.0012, now + 0.24);
   }
 
+  // ── Master bus with compressor/limiter ──────────────────────────────────────
+
+  ensureMasterBus() {
+    if (this.masterBus) return;
+    if (!this.context) return;
+    // Compressor: glues everything together, prevents clipping, pumps the volume
+    this.masterComp = this.context.createDynamicsCompressor();
+    this.masterComp.threshold.setValueAtTime(-18, 0);
+    this.masterComp.knee.setValueAtTime(6, 0);
+    this.masterComp.ratio.setValueAtTime(8, 0);
+    this.masterComp.attack.setValueAtTime(0.002, 0);
+    this.masterComp.release.setValueAtTime(0.08, 0);
+    // Post-comp makeup gain
+    this.masterGain = this.context.createGain();
+    this.masterGain.gain.setValueAtTime(2.8, 0);
+    // Final limiter – brick-wall so nothing clips
+    this.masterLimiter = this.context.createDynamicsCompressor();
+    this.masterLimiter.threshold.setValueAtTime(-3, 0);
+    this.masterLimiter.knee.setValueAtTime(0, 0);
+    this.masterLimiter.ratio.setValueAtTime(20, 0);
+    this.masterLimiter.attack.setValueAtTime(0.001, 0);
+    this.masterLimiter.release.setValueAtTime(0.02, 0);
+
+    this.masterComp.connect(this.masterGain);
+    this.masterGain.connect(this.masterLimiter);
+    this.masterLimiter.connect(this.context.destination);
+    this.masterBus = this.masterComp;
+  }
+
+  /** Returns the master bus node (or destination as fallback) */
+  out() {
+    this.ensureMasterBus();
+    return this.masterBus || this.context.destination;
+  }
+
   // ── Advanced synthesis helpers ──────────────────────────────────────────────
 
-  /** Multi-band filtered noise with per-band Q and optional ring modulation */
   shapedNoise({ duration, gain, bands, ringFreq = 0, delay = 0 }) {
     if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
     this.createNoiseBuffer();
     const t = this.context.currentTime + delay;
+    const dest = this.out();
     const master = this.context.createGain();
     master.gain.setValueAtTime(0.0001, t);
-    master.gain.exponentialRampToValueAtTime(gain, t + 0.008);
+    master.gain.exponentialRampToValueAtTime(gain, t + 0.004);
     master.gain.exponentialRampToValueAtTime(0.0001, t + duration);
 
-    let output = master;
     if (ringFreq > 0) {
       const ring = this.context.createOscillator();
       const ringGain = this.context.createGain();
@@ -481,17 +519,15 @@ export class AudioManager {
       ringGain.gain.setValueAtTime(0, t);
       ring.connect(ringGain.gain);
       master.connect(ringGain);
-      ringGain.connect(this.context.destination);
+      ringGain.connect(dest);
       ring.start(t);
       ring.stop(t + duration + 0.05);
-      output = master;
-      // Also connect dry path at reduced level
       const dry = this.context.createGain();
-      dry.gain.setValueAtTime(0.3, t);
+      dry.gain.setValueAtTime(0.4, t);
       master.connect(dry);
-      dry.connect(this.context.destination);
+      dry.connect(dest);
     } else {
-      master.connect(this.context.destination);
+      master.connect(dest);
     }
 
     bands.forEach(({ type = 'bandpass', freq, Q = 1, detune = 0, bandGain = 1 }) => {
@@ -512,7 +548,6 @@ export class AudioManager {
     });
   }
 
-  /** Distorted tone through a waveshaper for gritty, saturated sounds */
   distortedTone({ frequency, duration, type = 'sawtooth', gain = 0.05, drive = 8, delay = 0, freqEnd = 0 }) {
     if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
     const t = this.context.currentTime + delay;
@@ -524,23 +559,23 @@ export class AudioManager {
     }
     const shaper = this.context.createWaveShaper();
     shaper.curve = this.createDistortionCurve(drive);
-    shaper.oversample = '2x';
+    shaper.oversample = '4x';
     const gNode = this.context.createGain();
     gNode.gain.setValueAtTime(0.0001, t);
-    gNode.gain.exponentialRampToValueAtTime(gain, t + 0.006);
+    gNode.gain.exponentialRampToValueAtTime(gain, t + 0.003);
     gNode.gain.exponentialRampToValueAtTime(0.0001, t + duration);
     osc.connect(shaper);
     shaper.connect(gNode);
-    gNode.connect(this.context.destination);
+    gNode.connect(this.out());
     osc.start(t);
     osc.stop(t + duration + 0.03);
   }
 
-  /** Resonant body simulation – parallel tuned filters on impulse noise */
   resonantBody({ frequencies, Q = 12, duration = 0.15, gain = 0.03, delay = 0 }) {
     if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
     this.createNoiseBuffer();
     const t = this.context.currentTime + delay;
+    const dest = this.out();
     frequencies.forEach((freq) => {
       const src = this.context.createBufferSource();
       src.buffer = this.noiseBuffer;
@@ -551,20 +586,20 @@ export class AudioManager {
       const gNode = this.context.createGain();
       const perGain = gain / frequencies.length;
       gNode.gain.setValueAtTime(0.0001, t);
-      gNode.gain.exponentialRampToValueAtTime(perGain, t + 0.004);
+      gNode.gain.exponentialRampToValueAtTime(perGain, t + 0.003);
       gNode.gain.exponentialRampToValueAtTime(0.0001, t + duration);
       src.connect(bp);
       bp.connect(gNode);
-      gNode.connect(this.context.destination);
+      gNode.connect(dest);
       src.start(t);
       src.stop(t + duration + 0.05);
     });
   }
 
-  /** Dual-detuned oscillator for thick, chorused tones */
   chorusTone({ frequency, duration, type = 'sawtooth', gain = 0.04, detuneCents = 12, delay = 0, freqEnd = 0 }) {
     if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
     const t = this.context.currentTime + delay;
+    const dest = this.out();
     [-detuneCents, detuneCents].forEach((det) => {
       const osc = this.context.createOscillator();
       osc.type = type;
@@ -573,13 +608,107 @@ export class AudioManager {
       if (freqEnd > 0) osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t + duration);
       const gNode = this.context.createGain();
       gNode.gain.setValueAtTime(0.0001, t);
-      gNode.gain.exponentialRampToValueAtTime(gain * 0.5, t + 0.008);
+      gNode.gain.exponentialRampToValueAtTime(gain * 0.5, t + 0.005);
       gNode.gain.exponentialRampToValueAtTime(0.0001, t + duration);
       osc.connect(gNode);
-      gNode.connect(this.context.destination);
+      gNode.connect(dest);
       osc.start(t);
       osc.stop(t + duration + 0.03);
     });
+  }
+
+  /** Sub-bass pressure wave – the chest-punch of an explosion */
+  subBoom({ frequency = 40, freqEnd = 18, duration = 0.5, gain = 0.22, drive = 30, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
+    const t = this.context.currentTime + delay;
+    const dest = this.out();
+    // Layer 1: distorted sub oscillator
+    const osc = this.context.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(frequency, t);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(20, freqEnd), t + duration);
+    const shaper = this.context.createWaveShaper();
+    shaper.curve = this.createDistortionCurve(drive);
+    shaper.oversample = '4x';
+    const lp = this.context.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(120, t);
+    lp.Q.value = 1.2;
+    const g = this.context.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.004);
+    g.gain.setValueAtTime(gain, t + duration * 0.15);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    osc.connect(shaper);
+    shaper.connect(lp);
+    lp.connect(g);
+    g.connect(dest);
+    osc.start(t);
+    osc.stop(t + duration + 0.05);
+    // Layer 2: sub noise thump
+    this.createNoiseBuffer();
+    const ns = this.context.createBufferSource();
+    ns.buffer = this.noiseBuffer;
+    const nlp = this.context.createBiquadFilter();
+    nlp.type = 'lowpass';
+    nlp.frequency.setValueAtTime(80, t);
+    nlp.Q.value = 2;
+    const ng = this.context.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(gain * 0.5, t + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.0001, t + duration * 0.6);
+    ns.connect(nlp);
+    nlp.connect(ng);
+    ng.connect(dest);
+    ns.start(t);
+    ns.stop(t + duration + 0.05);
+  }
+
+  /** Hissing tail – fire/smoke/steam after explosion */
+  hissTail({ duration = 0.6, gain = 0.08, highpass = 2000, lowpass = 8000, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
+    this.createNoiseBuffer();
+    const t = this.context.currentTime + delay;
+    const dest = this.out();
+    const src = this.context.createBufferSource();
+    src.buffer = this.noiseBuffer;
+    const hp = this.context.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.setValueAtTime(highpass, t);
+    hp.Q.value = 0.5;
+    const lp = this.context.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(lowpass, t);
+    lp.frequency.exponentialRampToValueAtTime(Math.max(20, highpass + 200), t + duration);
+    lp.Q.value = 0.7;
+    const g = this.context.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + 0.01);
+    g.gain.setValueAtTime(gain * 0.7, t + duration * 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + duration);
+    src.connect(hp);
+    hp.connect(lp);
+    lp.connect(g);
+    g.connect(dest);
+    src.start(t);
+    src.stop(t + duration + 0.05);
+  }
+
+  /** Debris/shrapnel rattle – staggered metallic pings */
+  debrisShower({ count = 6, duration = 0.4, gain = 0.04, delay = 0 }) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) return;
+    for (let i = 0; i < count; i++) {
+      const d = delay + (i / count) * duration * 0.6 + Math.random() * 0.04;
+      const freq = 1200 + Math.random() * 3000;
+      const dur = 0.02 + Math.random() * 0.04;
+      this.resonantBody({
+        frequencies: [freq, freq * 1.5],
+        Q: 14 + Math.random() * 10,
+        duration: dur,
+        gain: gain * (0.5 + Math.random() * 0.5),
+        delay: d
+      });
+    }
   }
 
   // ── Per-weapon SHOT sounds ────────────────────────────────────────────────
@@ -597,224 +726,331 @@ export class AudioManager {
   }
 
   playShotShell() {
-    // Classic cannon: concussive thump + brass casing ring + smoke burst
-    this.distortedTone({ frequency: 160, freqEnd: 55, duration: 0.12, type: 'sawtooth', gain: 0.07, drive: 14 });
-    this.tone({ frequency: 1250, duration: 0.03, type: 'sine', gain: 0.025 });
-    this.tone({ frequency: 2800, duration: 0.018, type: 'sine', gain: 0.012, delay: 0.005 });
-    this.noiseBurst({ duration: 0.09, gain: 0.042, highpass: 300, lowpass: 2400, delay: 0.003 });
-    this.resonantBody({ frequencies: [520, 1040], Q: 8, duration: 0.06, gain: 0.018, delay: 0.01 });
+    // CANNON BLAST: huge concussive punch + barrel ring + smoke whoosh
+    this.subBoom({ frequency: 80, freqEnd: 30, duration: 0.18, gain: 0.18, drive: 18 });
+    this.distortedTone({ frequency: 180, freqEnd: 50, duration: 0.14, type: 'sawtooth', gain: 0.14, drive: 16 });
+    this.sweep({ from: 400, to: 80, duration: 0.12, type: 'square', gain: 0.08 });
+    // Barrel ring
+    this.resonantBody({ frequencies: [520, 1040, 2080], Q: 10, duration: 0.08, gain: 0.05, delay: 0.008 });
+    // Concussive blast noise
+    this.shapedNoise({
+      duration: 0.14, gain: 0.1,
+      bands: [
+        { freq: 200, Q: 0.8, bandGain: 1 },
+        { freq: 800, Q: 1.5, bandGain: 0.8 },
+        { freq: 2400, Q: 2, bandGain: 0.5 }
+      ]
+    });
+    // Smoke whoosh tail
+    this.hissTail({ duration: 0.2, gain: 0.04, highpass: 1500, lowpass: 5000, delay: 0.04 });
   }
 
   playShotMortar() {
-    // Heavy mortar: deep chamber boom + pressure wave + metallic tube resonance
-    this.distortedTone({ frequency: 72, freqEnd: 28, duration: 0.22, type: 'sawtooth', gain: 0.09, drive: 20 });
-    this.sweep({ from: 180, to: 38, duration: 0.18, type: 'triangle', gain: 0.06 });
+    // MORTAR LAUNCH: massive low-end thump + tube resonance + pressure wave
+    this.subBoom({ frequency: 55, freqEnd: 20, duration: 0.32, gain: 0.24, drive: 28 });
+    this.distortedTone({ frequency: 65, freqEnd: 22, duration: 0.26, type: 'sawtooth', gain: 0.16, drive: 24 });
+    this.sweep({ from: 200, to: 30, duration: 0.22, type: 'sawtooth', gain: 0.1 });
+    // Tube resonance – hollow metallic boom
+    this.resonantBody({ frequencies: [140, 280, 560, 1120], Q: 8, duration: 0.14, gain: 0.07, delay: 0.005 });
+    // Massive blast wave
     this.shapedNoise({
-      duration: 0.16, gain: 0.055,
+      duration: 0.22, gain: 0.12,
       bands: [
-        { freq: 120, Q: 1.2, bandGain: 1 },
-        { freq: 400, Q: 2, bandGain: 0.6 },
-        { freq: 1600, Q: 1.5, bandGain: 0.3 }
+        { freq: 80, Q: 0.6, bandGain: 1 },
+        { freq: 300, Q: 1, bandGain: 0.9 },
+        { freq: 1000, Q: 1.5, bandGain: 0.5 },
+        { freq: 2500, Q: 2, bandGain: 0.2 }
       ]
     });
-    this.resonantBody({ frequencies: [180, 360, 720], Q: 10, duration: 0.1, gain: 0.025, delay: 0.008 });
-    this.noiseBurst({ duration: 0.13, gain: 0.04, highpass: 80, lowpass: 900, delay: 0.01 });
+    this.noiseBurst({ duration: 0.16, gain: 0.08, highpass: 60, lowpass: 800, delay: 0.008 });
+    this.hissTail({ duration: 0.3, gain: 0.05, highpass: 800, lowpass: 3000, delay: 0.06 });
   }
 
   playShotSplit() {
-    // Crystal split: bright harmonic chime + electric crackle
-    this.tone({ frequency: 880, duration: 0.05, type: 'sine', gain: 0.035 });
-    this.tone({ frequency: 1320, duration: 0.04, type: 'sine', gain: 0.022, delay: 0.01 });
-    this.tone({ frequency: 1760, duration: 0.03, type: 'sine', gain: 0.014, delay: 0.018 });
-    this.chorusTone({ frequency: 440, duration: 0.08, type: 'triangle', gain: 0.03, detuneCents: 20 });
+    // CRYSTAL LAUNCHER: bright energy charge + harmonic scatter + electric snap
+    this.subBoom({ frequency: 100, freqEnd: 50, duration: 0.1, gain: 0.1, drive: 12 });
+    this.distortedTone({ frequency: 300, freqEnd: 120, duration: 0.08, type: 'triangle', gain: 0.08, drive: 10 });
+    // Harmonic crystal cascade
+    this.tone({ frequency: 880, duration: 0.06, type: 'sine', gain: 0.06 });
+    this.tone({ frequency: 1320, duration: 0.05, type: 'sine', gain: 0.04, delay: 0.008 });
+    this.tone({ frequency: 1760, duration: 0.04, type: 'sine', gain: 0.03, delay: 0.015 });
+    this.tone({ frequency: 2200, duration: 0.03, type: 'sine', gain: 0.02, delay: 0.02 });
+    this.chorusTone({ frequency: 440, duration: 0.1, type: 'triangle', gain: 0.06, detuneCents: 25 });
+    // Electric crackle
     this.shapedNoise({
-      duration: 0.07, gain: 0.03,
-      bands: [{ freq: 3200, Q: 3, bandGain: 1 }, { freq: 6000, Q: 2, bandGain: 0.5 }],
+      duration: 0.08, gain: 0.06,
+      bands: [{ freq: 3200, Q: 3 }, { freq: 6000, Q: 2.5, bandGain: 0.6 }],
       ringFreq: 880
     });
-    this.noiseBurst({ duration: 0.05, gain: 0.025, highpass: 1800, lowpass: 5000 });
+    this.noiseBurst({ duration: 0.06, gain: 0.05, highpass: 1500, lowpass: 6000, delay: 0.003 });
   }
 
   playShotStorm() {
-    // Arcane storm: ethereal whoosh + harmonic cascade + crackle
-    this.chorusTone({ frequency: 330, duration: 0.12, type: 'sawtooth', gain: 0.03, detuneCents: 30, freqEnd: 660 });
-    this.tone({ frequency: 660, duration: 0.06, type: 'sine', gain: 0.02, delay: 0.02 });
-    this.tone({ frequency: 990, duration: 0.04, type: 'sine', gain: 0.014, delay: 0.03 });
-    this.tone({ frequency: 1320, duration: 0.03, type: 'sine', gain: 0.01, delay: 0.038 });
-    this.sweep({ from: 2200, to: 600, duration: 0.1, type: 'sine', gain: 0.018 });
+    // ARCANE STORM BARRAGE: dark energy surge + dissonant cascade + thunder crack
+    this.subBoom({ frequency: 70, freqEnd: 30, duration: 0.16, gain: 0.14, drive: 16 });
+    this.distortedTone({ frequency: 200, freqEnd: 80, duration: 0.12, type: 'sawtooth', gain: 0.1, drive: 14 });
+    // Dissonant harmonic rise
+    this.chorusTone({ frequency: 330, duration: 0.14, type: 'sawtooth', gain: 0.06, detuneCents: 40, freqEnd: 800 });
+    this.tone({ frequency: 660, duration: 0.08, type: 'sine', gain: 0.04, delay: 0.015 });
+    this.tone({ frequency: 990, duration: 0.06, type: 'sine', gain: 0.03, delay: 0.025 });
+    this.tone({ frequency: 1320, duration: 0.04, type: 'sine', gain: 0.025, delay: 0.033 });
+    this.tone({ frequency: 1650, duration: 0.03, type: 'sine', gain: 0.02, delay: 0.04 });
+    // Thunder crack
+    this.sweep({ from: 3000, to: 400, duration: 0.08, type: 'sawtooth', gain: 0.05 });
     this.shapedNoise({
-      duration: 0.1, gain: 0.028,
-      bands: [{ freq: 4000, Q: 2 }, { freq: 7000, Q: 3, bandGain: 0.4 }],
+      duration: 0.12, gain: 0.07,
+      bands: [{ freq: 3000, Q: 1.5 }, { freq: 6000, Q: 2.5, bandGain: 0.5 }, { freq: 9000, Q: 3, bandGain: 0.2 }],
       ringFreq: 660
     });
-    this.noiseBurst({ duration: 0.06, gain: 0.02, highpass: 2000, lowpass: 6000, delay: 0.01 });
+    this.hissTail({ duration: 0.18, gain: 0.04, highpass: 2500, lowpass: 7000, delay: 0.04 });
   }
 
   playShotBouncer() {
-    // Rubber-steel hybrid: punchy metallic pop + spring twang
-    this.distortedTone({ frequency: 220, freqEnd: 120, duration: 0.08, type: 'square', gain: 0.05, drive: 10 });
-    this.sweep({ from: 1800, to: 400, duration: 0.06, type: 'sine', gain: 0.03, delay: 0.005 });
-    this.tone({ frequency: 680, duration: 0.04, type: 'triangle', gain: 0.025, delay: 0.01 });
-    this.resonantBody({ frequencies: [340, 680, 1360], Q: 14, duration: 0.05, gain: 0.02, delay: 0.005 });
-    this.noiseBurst({ duration: 0.05, gain: 0.028, highpass: 500, lowpass: 3000 });
+    // PNEUMATIC CANNON: compressed-air punch + metallic ring + spring release
+    this.subBoom({ frequency: 90, freqEnd: 40, duration: 0.12, gain: 0.14, drive: 14 });
+    this.distortedTone({ frequency: 240, freqEnd: 100, duration: 0.1, type: 'square', gain: 0.1, drive: 12 });
+    // Spring release twang
+    this.sweep({ from: 2400, to: 400, duration: 0.08, type: 'sine', gain: 0.06, delay: 0.005 });
+    this.sweep({ from: 1200, to: 200, duration: 0.1, type: 'triangle', gain: 0.04, delay: 0.01 });
+    // Metallic resonance
+    this.resonantBody({ frequencies: [340, 680, 1360, 2040], Q: 16, duration: 0.07, gain: 0.05, delay: 0.005 });
+    this.shapedNoise({
+      duration: 0.08, gain: 0.06,
+      bands: [{ freq: 600, Q: 2 }, { freq: 1800, Q: 3, bandGain: 0.7 }, { freq: 3600, Q: 2, bandGain: 0.3 }]
+    });
+    this.noiseBurst({ duration: 0.06, gain: 0.05, highpass: 400, lowpass: 3000, delay: 0.003 });
   }
 
   playShotHopper() {
-    // Mechanical launcher: chunky thud + gear ratchet + metallic rattle
-    this.distortedTone({ frequency: 140, freqEnd: 60, duration: 0.1, type: 'square', gain: 0.06, drive: 16 });
-    this.tone({ frequency: 380, duration: 0.04, type: 'square', gain: 0.03, delay: 0.008 });
+    // MINE LAUNCHER: heavy mechanical slam + gear crunch + rattle discharge
+    this.subBoom({ frequency: 65, freqEnd: 25, duration: 0.18, gain: 0.18, drive: 20 });
+    this.distortedTone({ frequency: 150, freqEnd: 50, duration: 0.14, type: 'square', gain: 0.12, drive: 18 });
+    // Gear crunch
     this.shapedNoise({
-      duration: 0.08, gain: 0.035,
+      duration: 0.1, gain: 0.08,
       bands: [
-        { freq: 800, Q: 4, bandGain: 1 },
-        { freq: 2200, Q: 5, bandGain: 0.6 }
+        { freq: 600, Q: 4 },
+        { freq: 1400, Q: 5, bandGain: 0.7 },
+        { freq: 2800, Q: 4, bandGain: 0.4 }
       ]
     });
-    this.resonantBody({ frequencies: [260, 520, 1100], Q: 10, duration: 0.07, gain: 0.02, delay: 0.006 });
-    this.noiseBurst({ duration: 0.06, gain: 0.03, highpass: 200, lowpass: 1800, delay: 0.004 });
+    this.tone({ frequency: 380, duration: 0.05, type: 'square', gain: 0.06, delay: 0.006 });
+    // Mechanical rattle
+    this.resonantBody({ frequencies: [260, 520, 1040, 1560], Q: 10, duration: 0.08, gain: 0.04, delay: 0.01 });
+    this.noiseBurst({ duration: 0.08, gain: 0.06, highpass: 150, lowpass: 2000, delay: 0.005 });
+    this.hissTail({ duration: 0.15, gain: 0.03, highpass: 1000, lowpass: 4000, delay: 0.05 });
   }
 
   playShotRail() {
-    // Electromagnetic railgun: supersonic crack + electric discharge + high-freq whine
-    this.tone({ frequency: 3200, duration: 0.015, type: 'sine', gain: 0.04 });
-    this.tone({ frequency: 6400, duration: 0.01, type: 'sine', gain: 0.02, delay: 0.002 });
-    this.sweep({ from: 4800, to: 800, duration: 0.04, type: 'sawtooth', gain: 0.035 });
-    this.distortedTone({ frequency: 240, freqEnd: 100, duration: 0.06, type: 'sawtooth', gain: 0.04, drive: 18 });
+    // RAILGUN DISCHARGE: electromagnetic crack + supersonic whip + ionization sizzle
+    // Initial ultra-fast transient – the "crack"
+    this.tone({ frequency: 4000, duration: 0.008, type: 'square', gain: 0.12 });
+    this.tone({ frequency: 8000, duration: 0.006, type: 'sine', gain: 0.06, delay: 0.001 });
+    // Supersonic whip sweep
+    this.sweep({ from: 6000, to: 600, duration: 0.05, type: 'sawtooth', gain: 0.1 });
+    this.sweep({ from: 3000, to: 200, duration: 0.08, type: 'square', gain: 0.06, delay: 0.01 });
+    // Electromagnetic bass punch
+    this.subBoom({ frequency: 120, freqEnd: 40, duration: 0.12, gain: 0.16, drive: 22 });
+    this.distortedTone({ frequency: 280, freqEnd: 80, duration: 0.08, type: 'sawtooth', gain: 0.1, drive: 20 });
+    // Ionization crackle
     this.shapedNoise({
-      duration: 0.04, gain: 0.04,
-      bands: [{ freq: 5000, Q: 1 }, { freq: 8000, Q: 2, bandGain: 0.7 }]
+      duration: 0.06, gain: 0.08,
+      bands: [{ freq: 5000, Q: 1.5 }, { freq: 8000, Q: 2, bandGain: 0.7 }, { freq: 11000, Q: 3, bandGain: 0.3 }]
     });
-    this.chorusTone({ frequency: 1600, duration: 0.03, type: 'sine', gain: 0.02, detuneCents: 40, freqEnd: 400 });
-    // Trailing electric hum
-    this.tone({ frequency: 120, duration: 0.08, type: 'sawtooth', gain: 0.015, delay: 0.02 });
+    // Chorus electric hum tail
+    this.chorusTone({ frequency: 1800, duration: 0.05, type: 'sine', gain: 0.04, detuneCents: 50, freqEnd: 300 });
+    this.hissTail({ duration: 0.15, gain: 0.05, highpass: 3000, lowpass: 10000, delay: 0.02 });
+    // Low growl tail
+    this.distortedTone({ frequency: 80, freqEnd: 30, duration: 0.12, type: 'sawtooth', gain: 0.04, drive: 16, delay: 0.03 });
   }
 
   // ── Per-weapon EXPLOSION sounds ───────────────────────────────────────────
 
   playExplosion(weapon) {
     const id = weapon.id;
-    if (id === 'shell') this.playExplosionShell(weapon);
-    else if (id === 'mortar') this.playExplosionMortar(weapon);
-    else if (id === 'split') this.playExplosionSplit(weapon);
-    else if (id === 'splitstorm') this.playExplosionStorm(weapon);
-    else if (id === 'bouncer') this.playExplosionBouncer(weapon);
-    else if (id === 'hopper') this.playExplosionHopper(weapon);
-    else if (id === 'rail') this.playExplosionRail(weapon);
-    else this.playExplosionShell(weapon);
+    if (id === 'shell') this.playExplosionShell();
+    else if (id === 'mortar') this.playExplosionMortar();
+    else if (id === 'split') this.playExplosionSplit();
+    else if (id === 'splitstorm') this.playExplosionStorm();
+    else if (id === 'bouncer') this.playExplosionBouncer();
+    else if (id === 'hopper') this.playExplosionHopper();
+    else if (id === 'rail') this.playExplosionRail();
+    else this.playExplosionShell();
   }
 
   playExplosionShell() {
-    // Standard explosion: fireball + pressure wave + debris scatter
-    this.distortedTone({ frequency: 90, freqEnd: 25, duration: 0.28, type: 'sawtooth', gain: 0.09, drive: 16 });
-    this.sweep({ from: 240, to: 35, duration: 0.22, type: 'triangle', gain: 0.06 });
+    // FIREBALL DETONATION: massive low-end + pressure shockwave + fire roar + debris
+    this.subBoom({ frequency: 50, freqEnd: 18, duration: 0.5, gain: 0.26, drive: 24 });
+    this.distortedTone({ frequency: 100, freqEnd: 22, duration: 0.35, type: 'sawtooth', gain: 0.16, drive: 20 });
+    this.sweep({ from: 300, to: 30, duration: 0.3, type: 'sawtooth', gain: 0.1 });
+    this.sweep({ from: 160, to: 20, duration: 0.4, type: 'triangle', gain: 0.08, delay: 0.02 });
+    // Full-spectrum blast
     this.shapedNoise({
-      duration: 0.26, gain: 0.06,
+      duration: 0.35, gain: 0.12,
       bands: [
-        { freq: 100, Q: 0.8, bandGain: 1 },
-        { freq: 600, Q: 1.2, bandGain: 0.7 },
-        { freq: 2000, Q: 1.5, bandGain: 0.3 }
+        { freq: 80, Q: 0.6, bandGain: 1 },
+        { freq: 400, Q: 1, bandGain: 0.8 },
+        { freq: 1500, Q: 1.5, bandGain: 0.5 },
+        { freq: 4000, Q: 2, bandGain: 0.25 }
       ]
     });
-    this.noiseBurst({ duration: 0.14, gain: 0.04, highpass: 200, lowpass: 3000, delay: 0.02 });
-    this.resonantBody({ frequencies: [80, 160], Q: 4, duration: 0.18, gain: 0.03, delay: 0.01 });
+    this.noiseBurst({ duration: 0.18, gain: 0.08, highpass: 150, lowpass: 3000, delay: 0.015 });
+    // Fire roar
+    this.hissTail({ duration: 0.4, gain: 0.07, highpass: 800, lowpass: 4000, delay: 0.05 });
+    // Debris scatter
+    this.debrisShower({ count: 5, duration: 0.35, gain: 0.03, delay: 0.08 });
+    this.resonantBody({ frequencies: [60, 120, 240], Q: 4, duration: 0.25, gain: 0.06, delay: 0.01 });
   }
 
   playExplosionMortar() {
-    // Massive detonation: earth-shaking sub-bass + shockwave + flying debris
-    this.distortedTone({ frequency: 48, freqEnd: 20, duration: 0.4, type: 'sawtooth', gain: 0.11, drive: 24 });
-    this.sweep({ from: 160, to: 22, duration: 0.36, type: 'sawtooth', gain: 0.08, delay: 0.005 });
-    this.sweep({ from: 80, to: 20, duration: 0.44, type: 'triangle', gain: 0.06, delay: 0.02 });
+    // EARTH-SHATTERING DETONATION: seismic sub-bass + massive shockwave + debris rain
+    this.subBoom({ frequency: 32, freqEnd: 14, duration: 0.7, gain: 0.3, drive: 32 });
+    this.subBoom({ frequency: 55, freqEnd: 20, duration: 0.5, gain: 0.2, drive: 28, delay: 0.01 });
+    this.distortedTone({ frequency: 45, freqEnd: 16, duration: 0.5, type: 'sawtooth', gain: 0.2, drive: 28 });
+    this.sweep({ from: 200, to: 18, duration: 0.45, type: 'sawtooth', gain: 0.12, delay: 0.005 });
+    this.sweep({ from: 100, to: 16, duration: 0.55, type: 'triangle', gain: 0.1, delay: 0.02 });
+    // Wall of destruction noise
     this.shapedNoise({
-      duration: 0.35, gain: 0.07,
+      duration: 0.5, gain: 0.14,
       bands: [
-        { freq: 60, Q: 0.6, bandGain: 1 },
-        { freq: 300, Q: 1, bandGain: 0.8 },
-        { freq: 1200, Q: 1.5, bandGain: 0.4 },
-        { freq: 3000, Q: 2, bandGain: 0.15 }
+        { freq: 40, Q: 0.5, bandGain: 1 },
+        { freq: 200, Q: 0.8, bandGain: 0.9 },
+        { freq: 800, Q: 1.2, bandGain: 0.6 },
+        { freq: 2000, Q: 1.5, bandGain: 0.35 },
+        { freq: 5000, Q: 2, bandGain: 0.15 }
       ]
     });
-    // Debris shower
-    this.noiseBurst({ duration: 0.2, gain: 0.035, highpass: 800, lowpass: 4000, delay: 0.06 });
-    this.noiseBurst({ duration: 0.15, gain: 0.025, highpass: 1500, lowpass: 5000, delay: 0.12 });
-    this.resonantBody({ frequencies: [55, 110, 220], Q: 5, duration: 0.22, gain: 0.035 });
+    this.noiseBurst({ duration: 0.25, gain: 0.1, highpass: 50, lowpass: 1200 });
+    // Shockwave ring-out
+    this.resonantBody({ frequencies: [40, 80, 160, 320], Q: 4, duration: 0.35, gain: 0.08 });
+    // Fire and smoke
+    this.hissTail({ duration: 0.6, gain: 0.08, highpass: 600, lowpass: 3500, delay: 0.06 });
+    this.hissTail({ duration: 0.4, gain: 0.05, highpass: 2000, lowpass: 6000, delay: 0.12 });
+    // Heavy debris rain
+    this.debrisShower({ count: 10, duration: 0.5, gain: 0.04, delay: 0.1 });
+    this.noiseBurst({ duration: 0.2, gain: 0.06, highpass: 1000, lowpass: 5000, delay: 0.08 });
   }
 
   playExplosionSplit() {
-    // Small crystalline pop: bright, sharp, quick
-    this.distortedTone({ frequency: 180, freqEnd: 60, duration: 0.12, type: 'triangle', gain: 0.05, drive: 8 });
-    this.tone({ frequency: 1100, duration: 0.03, type: 'sine', gain: 0.02 });
+    // CRYSTAL SHATTER: sharp concussive pop + glass-break harmonics + tinkle tail
+    this.subBoom({ frequency: 80, freqEnd: 35, duration: 0.2, gain: 0.14, drive: 14 });
+    this.distortedTone({ frequency: 200, freqEnd: 60, duration: 0.14, type: 'triangle', gain: 0.1, drive: 10 });
+    this.sweep({ from: 400, to: 60, duration: 0.12, type: 'triangle', gain: 0.06 });
+    // Crystal harmonics
+    this.tone({ frequency: 1100, duration: 0.04, type: 'sine', gain: 0.05 });
+    this.tone({ frequency: 1650, duration: 0.03, type: 'sine', gain: 0.03, delay: 0.005 });
+    this.tone({ frequency: 2200, duration: 0.025, type: 'sine', gain: 0.02, delay: 0.01 });
     this.shapedNoise({
-      duration: 0.1, gain: 0.035,
+      duration: 0.12, gain: 0.07,
       bands: [
         { freq: 400, Q: 1.5, bandGain: 1 },
-        { freq: 2400, Q: 3, bandGain: 0.5 }
+        { freq: 1800, Q: 2.5, bandGain: 0.6 },
+        { freq: 4000, Q: 3, bandGain: 0.3 }
       ],
       ringFreq: 440
     });
-    this.noiseBurst({ duration: 0.08, gain: 0.03, highpass: 300, lowpass: 2800, delay: 0.01 });
-    this.resonantBody({ frequencies: [440, 880], Q: 10, duration: 0.06, gain: 0.015, delay: 0.005 });
+    this.noiseBurst({ duration: 0.1, gain: 0.06, highpass: 250, lowpass: 3000, delay: 0.008 });
+    // Glass tinkle tail
+    this.debrisShower({ count: 4, duration: 0.2, gain: 0.025, delay: 0.04 });
+    this.hissTail({ duration: 0.15, gain: 0.03, highpass: 3000, lowpass: 8000, delay: 0.03 });
   }
 
   playExplosionStorm() {
-    // Arcane detonation: ethereal shatter + harmonic ring + sparkle tail
-    this.distortedTone({ frequency: 140, freqEnd: 50, duration: 0.14, type: 'triangle', gain: 0.04, drive: 8 });
-    this.chorusTone({ frequency: 660, duration: 0.08, type: 'sine', gain: 0.02, detuneCents: 25 });
-    this.tone({ frequency: 1320, duration: 0.05, type: 'sine', gain: 0.012, delay: 0.01 });
+    // ARCANE DETONATION: dark energy burst + dissonant ring + sparkle shower
+    this.subBoom({ frequency: 60, freqEnd: 25, duration: 0.25, gain: 0.16, drive: 16 });
+    this.distortedTone({ frequency: 160, freqEnd: 45, duration: 0.18, type: 'sawtooth', gain: 0.1, drive: 12 });
+    this.sweep({ from: 500, to: 50, duration: 0.16, type: 'triangle', gain: 0.06 });
+    // Dissonant harmonic ring
+    this.chorusTone({ frequency: 660, duration: 0.1, type: 'sine', gain: 0.05, detuneCents: 30 });
+    this.tone({ frequency: 990, duration: 0.07, type: 'sine', gain: 0.03, delay: 0.008 });
+    this.tone({ frequency: 1320, duration: 0.05, type: 'sine', gain: 0.025, delay: 0.015 });
     this.shapedNoise({
-      duration: 0.12, gain: 0.03,
-      bands: [{ freq: 3000, Q: 3 }, { freq: 5500, Q: 4, bandGain: 0.5 }],
+      duration: 0.16, gain: 0.07,
+      bands: [
+        { freq: 300, Q: 1 },
+        { freq: 2000, Q: 2, bandGain: 0.6 },
+        { freq: 5000, Q: 3, bandGain: 0.3 }
+      ],
       ringFreq: 330
     });
-    this.noiseBurst({ duration: 0.06, gain: 0.025, highpass: 400, lowpass: 2000, delay: 0.008 });
-    // Sparkle tail
-    this.noiseBurst({ duration: 0.08, gain: 0.012, highpass: 4000, lowpass: 8000, delay: 0.04 });
+    this.noiseBurst({ duration: 0.1, gain: 0.06, highpass: 300, lowpass: 2500, delay: 0.01 });
+    // Sparkle shower
+    this.debrisShower({ count: 8, duration: 0.3, gain: 0.03, delay: 0.04 });
+    this.hissTail({ duration: 0.25, gain: 0.04, highpass: 4000, lowpass: 10000, delay: 0.04 });
+    this.hissTail({ duration: 0.2, gain: 0.03, highpass: 1500, lowpass: 4000, delay: 0.06 });
   }
 
   playExplosionBouncer() {
-    // Metallic burst: sharp crack + reverberant ring
-    this.distortedTone({ frequency: 150, freqEnd: 45, duration: 0.18, type: 'square', gain: 0.06, drive: 12 });
-    this.sweep({ from: 320, to: 60, duration: 0.16, type: 'triangle', gain: 0.045 });
+    // METALLIC DETONATION: hard crack + steel plate resonance + ricochet scatter
+    this.subBoom({ frequency: 65, freqEnd: 25, duration: 0.3, gain: 0.18, drive: 18 });
+    this.distortedTone({ frequency: 160, freqEnd: 40, duration: 0.22, type: 'square', gain: 0.12, drive: 14 });
+    this.sweep({ from: 400, to: 50, duration: 0.2, type: 'sawtooth', gain: 0.08 });
+    // Heavy steel plate resonance
+    this.resonantBody({ frequencies: [220, 440, 880, 1320, 1760], Q: 14, duration: 0.14, gain: 0.07, delay: 0.006 });
     this.shapedNoise({
-      duration: 0.16, gain: 0.04,
+      duration: 0.2, gain: 0.08,
       bands: [
-        { freq: 200, Q: 1, bandGain: 1 },
-        { freq: 1000, Q: 2, bandGain: 0.6 }
+        { freq: 150, Q: 0.8, bandGain: 1 },
+        { freq: 700, Q: 1.5, bandGain: 0.7 },
+        { freq: 2200, Q: 2, bandGain: 0.4 }
       ]
     });
-    this.resonantBody({ frequencies: [340, 680, 1020], Q: 12, duration: 0.1, gain: 0.025, delay: 0.008 });
-    this.noiseBurst({ duration: 0.1, gain: 0.03, highpass: 150, lowpass: 2500, delay: 0.015 });
+    this.noiseBurst({ duration: 0.14, gain: 0.06, highpass: 120, lowpass: 2800, delay: 0.01 });
+    // Ricochet pings
+    this.debrisShower({ count: 5, duration: 0.3, gain: 0.035, delay: 0.06 });
+    this.hissTail({ duration: 0.25, gain: 0.04, highpass: 1200, lowpass: 5000, delay: 0.05 });
   }
 
   playExplosionHopper() {
-    // Mine detonation: sharp concussive snap + metallic shrapnel spray
-    this.distortedTone({ frequency: 120, freqEnd: 35, duration: 0.2, type: 'square', gain: 0.07, drive: 18 });
-    this.sweep({ from: 280, to: 40, duration: 0.18, type: 'sawtooth', gain: 0.05 });
+    // MINE BLAST: brutal snap + shrapnel spray + secondary detonation feel
+    this.subBoom({ frequency: 55, freqEnd: 18, duration: 0.35, gain: 0.22, drive: 22 });
+    this.distortedTone({ frequency: 130, freqEnd: 30, duration: 0.25, type: 'square', gain: 0.14, drive: 20 });
+    this.sweep({ from: 350, to: 35, duration: 0.22, type: 'sawtooth', gain: 0.09 });
+    // Shrapnel spray – harsh mid-range
     this.shapedNoise({
-      duration: 0.18, gain: 0.045,
+      duration: 0.22, gain: 0.1,
       bands: [
-        { freq: 160, Q: 0.8, bandGain: 1 },
-        { freq: 800, Q: 2, bandGain: 0.7 },
-        { freq: 2800, Q: 3, bandGain: 0.4 }
+        { freq: 120, Q: 0.7, bandGain: 1 },
+        { freq: 600, Q: 1.5, bandGain: 0.8 },
+        { freq: 2000, Q: 2.5, bandGain: 0.5 },
+        { freq: 4500, Q: 3, bandGain: 0.3 }
       ]
     });
-    // Shrapnel ping shower
-    this.resonantBody({ frequencies: [1800, 2600, 3400], Q: 16, duration: 0.06, gain: 0.015, delay: 0.03 });
-    this.noiseBurst({ duration: 0.12, gain: 0.03, highpass: 400, lowpass: 3200, delay: 0.02 });
+    this.noiseBurst({ duration: 0.16, gain: 0.07, highpass: 100, lowpass: 2500, delay: 0.01 });
+    // Metal shrapnel pings
+    this.resonantBody({ frequencies: [1400, 2200, 3000, 3800], Q: 18, duration: 0.08, gain: 0.04, delay: 0.025 });
+    this.debrisShower({ count: 8, duration: 0.35, gain: 0.04, delay: 0.06 });
+    // Fire/smoke tail
+    this.hissTail({ duration: 0.35, gain: 0.06, highpass: 800, lowpass: 3500, delay: 0.05 });
+    this.hissTail({ duration: 0.2, gain: 0.04, highpass: 2500, lowpass: 6000, delay: 0.1 });
   }
 
   playExplosionRail() {
-    // Electromagnetic impact: sharp electric snap + ionization crackle + EMP ring
-    this.tone({ frequency: 4200, duration: 0.012, type: 'sine', gain: 0.035 });
-    this.distortedTone({ frequency: 200, freqEnd: 60, duration: 0.1, type: 'sawtooth', gain: 0.055, drive: 20 });
-    this.sweep({ from: 3600, to: 300, duration: 0.06, type: 'sawtooth', gain: 0.03 });
+    // ELECTROMAGNETIC IMPACT: ultra-sharp crack + ionization burst + EMP shockwave + sizzle
+    // Initial crack transient
+    this.tone({ frequency: 5000, duration: 0.008, type: 'square', gain: 0.14 });
+    this.tone({ frequency: 9000, duration: 0.005, type: 'sine', gain: 0.08, delay: 0.001 });
+    this.subBoom({ frequency: 80, freqEnd: 25, duration: 0.3, gain: 0.2, drive: 24 });
+    this.distortedTone({ frequency: 220, freqEnd: 50, duration: 0.15, type: 'sawtooth', gain: 0.12, drive: 22 });
+    // Ionization burst
+    this.sweep({ from: 5000, to: 300, duration: 0.08, type: 'sawtooth', gain: 0.08 });
+    this.sweep({ from: 2500, to: 100, duration: 0.12, type: 'square', gain: 0.06, delay: 0.01 });
     this.shapedNoise({
-      duration: 0.08, gain: 0.04,
-      bands: [{ freq: 4000, Q: 2 }, { freq: 7000, Q: 3, bandGain: 0.5 }]
+      duration: 0.12, gain: 0.1,
+      bands: [
+        { freq: 300, Q: 1 },
+        { freq: 3000, Q: 2, bandGain: 0.7 },
+        { freq: 7000, Q: 3, bandGain: 0.4 },
+        { freq: 10000, Q: 2.5, bandGain: 0.2 }
+      ]
     });
-    // EMP ring-out
-    this.chorusTone({ frequency: 240, duration: 0.12, type: 'sine', gain: 0.02, detuneCents: 50, delay: 0.02 });
-    this.noiseBurst({ duration: 0.06, gain: 0.03, highpass: 200, lowpass: 1600, delay: 0.01 });
-    this.resonantBody({ frequencies: [120, 240], Q: 6, duration: 0.1, gain: 0.02, delay: 0.015 });
+    // EMP shockwave ring
+    this.chorusTone({ frequency: 240, duration: 0.18, type: 'sine', gain: 0.05, detuneCents: 60, delay: 0.015 });
+    this.resonantBody({ frequencies: [100, 200, 400], Q: 6, duration: 0.15, gain: 0.05, delay: 0.01 });
+    // Ionization sizzle tail
+    this.hissTail({ duration: 0.3, gain: 0.06, highpass: 3000, lowpass: 10000, delay: 0.03 });
+    this.hissTail({ duration: 0.2, gain: 0.04, highpass: 5000, lowpass: 12000, delay: 0.06 });
+    this.noiseBurst({ duration: 0.1, gain: 0.06, highpass: 200, lowpass: 2000, delay: 0.015 });
   }
 
   // ── Per-weapon HIT sounds ─────────────────────────────────────────────────
@@ -823,30 +1059,50 @@ export class AudioManager {
     const id = weapon?.id;
     const intensity = Math.min(1, damage / 60);
 
-    // Universal metallic hull impact
-    this.resonantBody({
-      frequencies: [420 + intensity * 180, 840 + intensity * 200],
-      Q: 8 + intensity * 6,
-      duration: 0.06 + intensity * 0.04,
-      gain: 0.02 + intensity * 0.015
+    // Heavy metallic hull impact – FEEL the hit
+    this.subBoom({
+      frequency: 60 + intensity * 40,
+      freqEnd: 20,
+      duration: 0.12 + intensity * 0.1,
+      gain: 0.1 + intensity * 0.08,
+      drive: 14 + intensity * 10
     });
-    this.tone({
-      frequency: 380 + intensity * 220,
-      duration: 0.05,
+    this.resonantBody({
+      frequencies: [320 + intensity * 200, 640 + intensity * 300, 1100 + intensity * 400],
+      Q: 10 + intensity * 8,
+      duration: 0.08 + intensity * 0.06,
+      gain: 0.05 + intensity * 0.04
+    });
+    this.distortedTone({
+      frequency: 200 + intensity * 180,
+      freqEnd: 60,
+      duration: 0.08 + intensity * 0.04,
       type: 'square',
-      gain: 0.02 + intensity * 0.012
+      gain: 0.06 + intensity * 0.05,
+      drive: 10 + intensity * 8
+    });
+    // Impact noise burst
+    this.noiseBurst({
+      duration: 0.06 + intensity * 0.04,
+      gain: 0.04 + intensity * 0.04,
+      highpass: 200,
+      lowpass: 2500 + intensity * 2000,
+      delay: 0.003
     });
 
-    // Weapon-specific hit layer
+    // Weapon-specific hit character
     if (id === 'mortar') {
-      this.distortedTone({ frequency: 110, freqEnd: 40, duration: 0.1, type: 'sawtooth', gain: 0.03, drive: 12, delay: 0.005 });
+      this.distortedTone({ frequency: 80, freqEnd: 25, duration: 0.14, type: 'sawtooth', gain: 0.08, drive: 16, delay: 0.005 });
+      this.noiseBurst({ duration: 0.1, gain: 0.05, highpass: 80, lowpass: 600, delay: 0.008 });
     } else if (id === 'rail') {
-      this.tone({ frequency: 2400, duration: 0.02, type: 'sine', gain: 0.018 });
-      this.sweep({ from: 1800, to: 300, duration: 0.04, type: 'sine', gain: 0.012, delay: 0.005 });
+      this.tone({ frequency: 3200, duration: 0.015, type: 'sine', gain: 0.06 });
+      this.sweep({ from: 2400, to: 300, duration: 0.05, type: 'sine', gain: 0.04, delay: 0.003 });
+      this.hissTail({ duration: 0.08, gain: 0.03, highpass: 3000, lowpass: 8000, delay: 0.01 });
     } else if (id === 'split' || id === 'splitstorm') {
-      this.tone({ frequency: 1100, duration: 0.025, type: 'sine', gain: 0.015, delay: 0.003 });
+      this.tone({ frequency: 1400, duration: 0.03, type: 'sine', gain: 0.04, delay: 0.003 });
+      this.tone({ frequency: 2100, duration: 0.02, type: 'sine', gain: 0.025, delay: 0.008 });
     } else if (id === 'bouncer' || id === 'hopper') {
-      this.tone({ frequency: 680, duration: 0.03, type: 'triangle', gain: 0.018, delay: 0.005 });
+      this.resonantBody({ frequencies: [800, 1600, 2400], Q: 16, duration: 0.05, gain: 0.03, delay: 0.005 });
     }
   }
 
@@ -855,15 +1111,20 @@ export class AudioManager {
   playBounce(weapon) {
     const id = weapon?.id;
     if (id === 'hopper') {
-      // Heavy mechanical clank + spring
-      this.distortedTone({ frequency: 180, freqEnd: 100, duration: 0.05, type: 'square', gain: 0.035, drive: 10 });
-      this.resonantBody({ frequencies: [460, 920, 1380], Q: 14, duration: 0.04, gain: 0.02, delay: 0.005 });
-      this.noiseBurst({ duration: 0.03, gain: 0.02, highpass: 600, lowpass: 3000 });
+      // Heavy mine impact: brutal clank + ground thud + rattle
+      this.subBoom({ frequency: 70, freqEnd: 30, duration: 0.08, gain: 0.1, drive: 14 });
+      this.distortedTone({ frequency: 200, freqEnd: 80, duration: 0.06, type: 'square', gain: 0.08, drive: 12 });
+      this.resonantBody({ frequencies: [460, 920, 1380, 1840], Q: 16, duration: 0.06, gain: 0.05, delay: 0.004 });
+      this.noiseBurst({ duration: 0.04, gain: 0.04, highpass: 400, lowpass: 3000 });
+      this.noiseBurst({ duration: 0.03, gain: 0.03, highpass: 1200, lowpass: 5000, delay: 0.01 });
     } else {
-      // Bouncer: elastic metallic ping + spring twang
-      this.sweep({ from: 1600, to: 480, duration: 0.04, type: 'sine', gain: 0.03 });
-      this.tone({ frequency: 520, duration: 0.04, type: 'triangle', gain: 0.028, delay: 0.01 });
-      this.resonantBody({ frequencies: [340, 680], Q: 16, duration: 0.04, gain: 0.018 });
+      // Bouncer: hard rubber-steel impact + spring twang + ring
+      this.subBoom({ frequency: 80, freqEnd: 35, duration: 0.06, gain: 0.08, drive: 10 });
+      this.sweep({ from: 2200, to: 400, duration: 0.05, type: 'sine', gain: 0.06 });
+      this.sweep({ from: 1100, to: 250, duration: 0.07, type: 'triangle', gain: 0.04, delay: 0.008 });
+      this.tone({ frequency: 600, duration: 0.05, type: 'triangle', gain: 0.05, delay: 0.008 });
+      this.resonantBody({ frequencies: [340, 680, 1020], Q: 18, duration: 0.06, gain: 0.04 });
+      this.noiseBurst({ duration: 0.03, gain: 0.035, highpass: 500, lowpass: 4000 });
     }
   }
 
