@@ -2527,7 +2527,7 @@ export class GameScene extends Phaser.Scene {
         x: chip.x + Phaser.Math.Between(-radius * profile.travelSpread, radius * profile.travelSpread),
         y: chip.y + Phaser.Math.Between(-profile.travelLift[0], profile.travelLift[1]),
         angle: Phaser.Math.Between(-120, 120),
-        alpha: 0,
+        alpha: profile.fadeToAlpha,
         duration: Phaser.Math.Between(profile.duration[0], profile.duration[1]),
         ease: 'Quad.Out',
         onComplete: () => this.releaseFxObject(chip)
@@ -2538,7 +2538,8 @@ export class GameScene extends Phaser.Scene {
   getDebrisFxProfile(weapon) {
     const base = {
       palette: [0xc9ba8f, 0xa18c63, 0x82684a, 0x67513e],
-      alpha: 0.96,
+      alpha: 1,
+      fadeToAlpha: 0.18,
       width: [4, 9],
       height: [3, 6],
       countOffset: 0,

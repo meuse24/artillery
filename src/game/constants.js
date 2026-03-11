@@ -1,12 +1,12 @@
 export const GAME_WIDTH = 1280;
 export const GAME_HEIGHT = 720;
 
-export const TANK_BODY_WIDTH = 36;
-export const TANK_BODY_HEIGHT = 18;
-export const TANK_TRACK_WIDTH = 44;
-export const TANK_TRACK_HEIGHT = 8;
-export const TANK_RADIUS = 18;
-export const BARREL_LENGTH = 28;
+export const TANK_BODY_WIDTH = 72;
+export const TANK_BODY_HEIGHT = 36;
+export const TANK_TRACK_WIDTH = 88;
+export const TANK_TRACK_HEIGHT = 16;
+export const TANK_RADIUS = 36;
+export const BARREL_LENGTH = 56;
 
 export const PLAYER_COLORS = [0xf2b84b, 0x7fe7dc];
 export const PLAYER_NAMES = ['Amber', 'Cyan'];

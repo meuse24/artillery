@@ -10,6 +10,10 @@ import {
   isBootGameSceneReady,
   toggleBootPreference
 } from './bootSceneModel.js';
+import {
+  distributeVerticalSections,
+  getBootScreenMetrics
+} from '../ui/screenLayoutModel.js';
 
 export class BootScene extends Phaser.Scene {
   constructor() {
@@ -47,7 +51,7 @@ export class BootScene extends Phaser.Scene {
 
     this.createLaunchAtmosphere();
 
-    this.add
+    this.bootKicker = this.add
       .text(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5 - 172, 'ARCADE TANK DUEL', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '18px',
@@ -58,7 +62,7 @@ export class BootScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(501);
 
-    this.add
+    this.bootTitle = this.add
       .text(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5 - 108, 'CRATER COMMAND', {
         fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
         fontSize: '78px',
@@ -69,7 +73,7 @@ export class BootScene extends Phaser.Scene {
       .setDepth(501)
       .setStroke('#1a1208', 7);
 
-    this.add
+    this.bootIntro = this.add
       .text(
         GAME_WIDTH * 0.5,
         GAME_HEIGHT * 0.5 - 24,
@@ -167,7 +171,6 @@ export class BootScene extends Phaser.Scene {
     this.hotkeyFullscreen = this.createHotkeyChip('(F) FULLSCREEN', '#7fe7dc', () => this.togglePreference('fullscreen'));
     this.hotkeySound = this.createHotkeyChip('(S) SOUND', '#f2b84b', () => this.togglePreference('sound'));
     this.hotkeyStart = this.createHotkeyChip('(ENTER)/(SPACE) START', '#ffd995', () => this.startFromBoot());
-    this.layoutBootHotkeys();
 
     this.input.keyboard?.on('keydown-F', () => this.togglePreference('fullscreen'));
     this.input.keyboard?.on('keydown-S', () => this.togglePreference('sound'));
@@ -291,8 +294,8 @@ export class BootScene extends Phaser.Scene {
   }
 
   layoutBootHotkeys() {
-    const hotkeyY = GAME_HEIGHT * 0.5 + 224;
-    const gap = 10;
+    const hotkeyY = this.bootHotkeyY ?? (GAME_HEIGHT * 0.5 + 224);
+    const gap = this.bootHotkeyGap ?? 10;
     const items = [
       this.hotkeyPrefix,
       this.hotkeyFullscreen,
@@ -305,6 +308,97 @@ export class BootScene extends Phaser.Scene {
       item.setPosition(cursor + item.displayWidth * 0.5, hotkeyY);
       cursor += item.displayWidth + gap;
     });
+  }
+
+  layoutBootOverlay() {
+    const viewport = this.getViewportSize();
+    const metrics = getBootScreenMetrics({
+      viewportWidth: viewport.width,
+      viewportHeight: viewport.height,
+      showOrientationHint: Boolean(this.bootOrientationState?.startBlocked)
+    });
+    const sections = [
+      {
+        key: 'kicker',
+        height: Math.max(18, Math.round(metrics.kickerFontPx * 1.45))
+      },
+      {
+        key: 'title',
+        height: Math.max(72, Math.round(metrics.titleFontPx * 1.18))
+      },
+      {
+        key: 'intro',
+        height: Math.max(
+          Math.round(metrics.introFontPx * 2.4 + metrics.introLineSpacing),
+          Math.round(this.bootIntro.displayHeight || 0)
+        )
+      },
+      {
+        key: 'toggles',
+        height: metrics.toggleHeight
+      },
+      ...(this.bootOrientationState?.startBlocked
+        ? [{
+          key: 'hint',
+          height: Math.max(
+            46,
+            Math.round(metrics.hintFontPx * 2.6 + metrics.hintLineSpacing)
+          )
+        }]
+        : []),
+      {
+        key: 'start',
+        height: metrics.startButtonHeight
+      },
+      {
+        key: 'hotkeys',
+        height: Math.max(20, Math.round(metrics.hotkeyFontPx * 2.05))
+      }
+    ];
+    const layout = distributeVerticalSections({
+      top: metrics.topPad,
+      height: GAME_HEIGHT - metrics.topPad - metrics.bottomPad,
+      sections,
+      minGap: metrics.minGap,
+      maxGap: metrics.maxGap
+    });
+
+    this.bootKicker.setFontSize(`${metrics.kickerFontPx}px`);
+    this.bootTitle.setFontSize(`${metrics.titleFontPx}px`);
+    this.bootTitle.setStroke('#1a1208', Math.max(5, Math.round(metrics.titleFontPx * 0.09)));
+    this.bootIntro.setFontSize(`${metrics.introFontPx}px`);
+    this.bootIntro.setLineSpacing(metrics.introLineSpacing);
+    this.bootIntro.setWordWrapWidth(metrics.introWrapWidth, true);
+    this.fullscreenButton.width = metrics.toggleWidth;
+    this.fullscreenButton.height = metrics.toggleHeight;
+    this.soundButton.width = metrics.toggleWidth;
+    this.soundButton.height = metrics.toggleHeight;
+    this.fullscreenText.setFontSize(`${metrics.toggleFontPx}px`);
+    this.soundText.setFontSize(`${metrics.toggleFontPx}px`);
+    this.startButton.width = metrics.startButtonWidth;
+    this.startButton.height = metrics.startButtonHeight;
+    this.startLabel.setFontSize(`${metrics.startFontPx}px`);
+    this.orientationHint.setWordWrapWidth(metrics.hintWrapWidth, true);
+    this.orientationHint.setFontSize(`${metrics.hintFontPx}px`);
+    this.orientationHint.setLineSpacing(metrics.hintLineSpacing);
+    this.hotkeyPrefix.setFontSize(`${Math.max(12, metrics.hotkeyFontPx - 1)}px`);
+    this.hotkeyFullscreen.setFontSize(`${metrics.hotkeyFontPx}px`);
+    this.hotkeySound.setFontSize(`${metrics.hotkeyFontPx}px`);
+    this.hotkeyStart.setFontSize(`${metrics.hotkeyFontPx}px`);
+
+    this.bootKicker.setPosition(GAME_WIDTH * 0.5, layout.positions.kicker ?? this.bootKicker.y);
+    this.bootTitle.setPosition(GAME_WIDTH * 0.5, layout.positions.title ?? this.bootTitle.y);
+    this.bootIntro.setPosition(GAME_WIDTH * 0.5, layout.positions.intro ?? this.bootIntro.y);
+    this.fullscreenButton.setPosition(GAME_WIDTH * 0.5 - 148, layout.positions.toggles ?? this.fullscreenButton.y);
+    this.soundButton.setPosition(GAME_WIDTH * 0.5 + 148, layout.positions.toggles ?? this.soundButton.y);
+    this.fullscreenText.setPosition(this.fullscreenButton.x, this.fullscreenButton.y);
+    this.soundText.setPosition(this.soundButton.x, this.soundButton.y);
+    this.orientationHint.setPosition(GAME_WIDTH * 0.5, layout.positions.hint ?? (layout.positions.start ?? this.startButton.y) - 40);
+    this.startButton.setPosition(GAME_WIDTH * 0.5, layout.positions.start ?? this.startButton.y);
+    this.startLabel.setPosition(this.startButton.x, this.startButton.y);
+    this.bootHotkeyY = layout.positions.hotkeys ?? this.bootHotkeyY;
+    this.bootHotkeyGap = metrics.hotkeyGap;
+    this.layoutBootHotkeys();
   }
 
   togglePreference(key) {
@@ -345,13 +439,17 @@ export class BootScene extends Phaser.Scene {
   }
 
   getViewportSize() {
+    const parent = this.scale?.parentSize;
     if (typeof window === 'undefined') {
-      return { width: GAME_WIDTH, height: GAME_HEIGHT };
+      return {
+        width: parent?.width ?? GAME_WIDTH,
+        height: parent?.height ?? GAME_HEIGHT
+      };
     }
     const viewport = window.visualViewport;
     return {
-      width: viewport?.width ?? window.innerWidth ?? GAME_WIDTH,
-      height: viewport?.height ?? window.innerHeight ?? GAME_HEIGHT
+      width: parent?.width ?? viewport?.width ?? window.innerWidth ?? GAME_WIDTH,
+      height: parent?.height ?? viewport?.height ?? window.innerHeight ?? GAME_HEIGHT
     };
   }
 
@@ -391,6 +489,7 @@ export class BootScene extends Phaser.Scene {
     this.orientationHint.setText(this.bootOrientationState.hint);
     this.orientationHint.setVisible(blocked);
     this.orientationHint.setAlpha(blocked ? 1 : 0);
+    this.layoutBootOverlay();
     this.startButton.setFillStyle(0xf2b84b, blocked ? 0.14 : 0.32);
     this.startButton.setStrokeStyle(2, 0xf2b84b, blocked ? 0.22 : 0.64);
     this.startLabel.setColor(blocked ? '#b6a58b' : '#fff3d1');

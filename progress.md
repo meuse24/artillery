@@ -37,3 +37,10 @@ Original prompt: verwende den skill develop-web-game und prüfe das game.
 - 2026-03-10: Neue Waffen endlich auch in der Wirkung differenziert: `Storm Shards` splitten nun real in 5 Teilgeschosse, `Rail Slug` bohrt sich einmal durch Terrain und hat eigenes Schuss-/Trail-/Drill-Feedback.
 - 2026-03-10: Projektil-VFX pro Waffe weiter arcadig differenziert: eigene Bullet-Silhouetten (`orb`, `heavy-orb`, `diamond`, `chunk`, `slug`, `shard`, `block`), ausdrucksstaerkere Muzzle-/Impact-/Explosionseffekte sowie opakere Debris-Chips mit waffenspezifischen Farbpaletten.
 - 2026-03-10: Verifikation fuer die neuen VFX erfolgreich: `npm test` (47 Tests), `npm run lint`, `npm run build`; Build weiterhin nur mit bekannter Chunk-Size-Warnung.
+- 2026-03-10: Neues pure Layout-Modell fuer Boot- und Startscreen ergaenzt (`screenLayoutModel`), damit vertikale Verteilung und Typografie an die verfuegbare Hoehe angepasst werden koennen.
+- 2026-03-10: `BootScene` analysiert beim Anzeigen/Resize jetzt den verfuegbaren Platz und verteilt Kicker, Titel, Intro, Toggles, CTA, Orientierungshinweis und Hotkeys hoehenadaptiv.
+- 2026-03-10: `UIScene`-Startscreen nutzt jetzt adaptive Panelhoehe, skalierte Startscreen-Typografie und dynamische Section-Abstaende/Boxhoehen, um Leerraum oben und unten sichtbar zu reduzieren.
+- 2026-03-10: Neue Tests fuer das Layout-Modell ergaenzt; Verifikation erfolgreich: `npm test` (50 Tests), `npm run lint`, `npm run build`, `npm run test:live`; Boot- und Startscreen-Screenshots visuell geprueft.
+- 2026-03-10: Layout-Modell nachgeschaerft: kleine Viewports bekommen jetzt bewusst groessere interne Schrift und groessere CTA-/Mode-/Action-Flaechen statt verkleinerter Typografie.
+- 2026-03-10: Vertikale Ausnutzung fuer Boot- und Startscreen weiter erhoeht: geringere Innenraender, hoehere Panels und aggressiver gefuellte Section-Hoehen/Gaps.
+- 2026-03-10: Zweite Verifikation erfolgreich: `npm test`, `npm run lint`, `npm run build`, `npm run test:live`; zusaetzlich Small-Landscape-Screenshots (`640x360`, Touch/Mobile) fuer Boot und Startscreen visuell geprueft.

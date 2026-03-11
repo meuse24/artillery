@@ -4,6 +4,10 @@ import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
 import { DialogLayoutModule } from '../ui/DialogLayoutModule.js';
 import { MobileControls } from '../ui/MobileControls.js';
 import { OrientationGuard } from '../ui/OrientationGuard.js';
+import {
+  distributeVerticalSections,
+  getStartScreenMetrics
+} from '../ui/screenLayoutModel.js';
 
 export class UIScene extends Phaser.Scene {
   constructor() {
@@ -33,6 +37,7 @@ export class UIScene extends Phaser.Scene {
     this.dialogLayoutModule = new DialogLayoutModule();
     this.dialogDragPointerId = null;
     this.dialogDragLastY = 0;
+    this.startScreenMetrics = getStartScreenMetrics();
 
     // ── HUD layer ──────────────────────────────────────────────────────────────
     this.panel = this.add.graphics().setDepth(100);
@@ -1628,6 +1633,11 @@ export class UIScene extends Phaser.Scene {
     const width = this.scale.parentSize.width;
     const height = this.scale.parentSize.height;
     this.compactLayout = width < 920 || height < 680;
+    this.startScreenMetrics = getStartScreenMetrics({
+      viewportWidth: width,
+      viewportHeight: height,
+      compact: this.compactLayout
+    });
     this.hudLayout = this.computeHudLayout();
     const h = this.hudLayout;
 
@@ -1660,8 +1670,8 @@ export class UIScene extends Phaser.Scene {
     const activeOverlayType = this.gameScene?.overlayState?.type;
     if (activeOverlayType === 'start') {
       this.overlayPanel.width = this.compactLayout ? 980 : 940;
-      this.overlayPanel.height = this.compactLayout ? 620 : 590;
-      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
+      this.overlayPanel.height = this.startScreenMetrics.panelHeight;
+      this.overlayPanel.y = this.startScreenMetrics.panelY;
     } else if (this.isUnifiedDialogType(activeOverlayType)) {
       this.layoutUnifiedDialog(false);
     } else {
@@ -1672,13 +1682,16 @@ export class UIScene extends Phaser.Scene {
       this.overlayScoreboard.setWordWrapWidth(this.compactLayout ? 310 : 270, true);
       this.turnLayout = null;
     }
-    this.startTagline.setFontSize(this.compactLayout ? '21px' : '24px');
-    this.startModeCpuText.setFontSize(this.compactLayout ? '14px' : '15px');
-    this.startModeLocalText.setFontSize(this.compactLayout ? '14px' : '15px');
-    this.startBodyLabel.setFontSize(this.compactLayout ? '11px' : '12px');
-    this.startScoreLabel.setFontSize(this.compactLayout ? '11px' : '12px');
-    this.startScoreAmber.setFontSize(this.compactLayout ? '17px' : '18px');
-    this.startScoreCyan.setFontSize(this.compactLayout ? '17px' : '18px');
+    this.startKicker.setFontSize(`${this.startScreenMetrics.kickerFontPx}px`);
+    this.startTagline.setFontSize(`${this.startScreenMetrics.taglineFontPx}px`);
+    this.startModeCpuText.setFontSize(`${this.startScreenMetrics.modeFontPx}px`);
+    this.startModeLocalText.setFontSize(`${this.startScreenMetrics.modeFontPx}px`);
+    this.startBodyLabel.setFontSize(`${this.startScreenMetrics.labelFontPx}px`);
+    this.startScoreLabel.setFontSize(`${this.startScreenMetrics.labelFontPx}px`);
+    this.startScoreAmber.setFontSize(`${this.startScreenMetrics.scoreFontPx}px`);
+    this.startScoreCyan.setFontSize(`${this.startScreenMetrics.scoreFontPx}px`);
+    this.startHowToPlayText.setFontSize(`${this.startScreenMetrics.linkFontPx}px`);
+    this.startSwitchModeText.setFontSize(`${this.startScreenMetrics.linkFontPx}px`);
     this.overlayTitle.setFontSize(this.compactLayout ? '34px' : this.overlayTitle.style.fontSize);
     this.orientationTitle.setFontSize(this.compactLayout ? '28px' : '34px');
     this.orientationBody.setFontSize(this.compactLayout ? '18px' : '20px');
@@ -1695,6 +1708,7 @@ export class UIScene extends Phaser.Scene {
 
   // ── Start screen decorative graphics ─────────────────────────────────────────
   getStartOverlayLayout() {
+    const metrics = this.startScreenMetrics ?? getStartScreenMetrics({ compact: this.compactLayout });
     const panelW = this.overlayPanel.width;
     const panelH = this.overlayPanel.height;
     const panelX = this.overlayPanel.x;
@@ -1709,38 +1723,41 @@ export class UIScene extends Phaser.Scene {
     const missionW = Math.round(contentW * (this.compactLayout ? 0.59 : 0.6));
     const scoreW = contentW - missionW - contentGap;
     const scoreX = contentX + missionW + contentGap;
-
-    const kickerH = Math.max(16, Math.round(this.startKicker.height || 16));
-    const titleH = Math.max(this.compactLayout ? 66 : 74, Math.round(this.overlayTitle.displayHeight || 0));
-    const taglineH = Math.max(22, Math.round(this.startTagline.height || 22));
-    const modeH = 46;
-    const contentH = this.compactLayout ? 152 : 148;
-    const actionH = 50;
-    const linksH = Math.max(16, Math.round(this.startHowToPlayText.height || 16));
-    const heights = [kickerH, titleH, taglineH, modeH, contentH, actionH, linksH];
-    const totalHeights = heights.reduce((sum, v) => sum + v, 0);
-    const gapCount = heights.length + 1;
-    const rawGap = Math.floor((panelH - totalHeights) / gapCount);
-    const gap = Phaser.Math.Clamp(rawGap, this.compactLayout ? 6 : 8, this.compactLayout ? 16 : 20);
-    const used = totalHeights + gap * gapCount;
-    const extra = panelH - used;
-
-    let cursor = top + gap + Math.floor(extra * 0.5);
-    const kickerY = cursor + kickerH * 0.5;
-    cursor += kickerH + gap;
-    const titleY = cursor + titleH * 0.5;
-    cursor += titleH + gap;
-    const taglineY = cursor + taglineH * 0.5;
-    cursor += taglineH + gap;
-    const modeY = cursor + modeH * 0.5;
-    cursor += modeH + gap;
-    const contentY = cursor;
-    cursor += contentH + gap;
-    const actionY = cursor + actionH * 0.5;
-    cursor += actionH + gap;
-    const linksY = cursor + linksH * 0.5;
+    const sections = [
+      {
+        key: 'kicker',
+        height: Math.max(16, Math.round(this.startKicker.displayHeight || metrics.kickerFontPx * 1.35))
+      },
+      {
+        key: 'title',
+        height: Math.max(70, Math.round(this.overlayTitle.displayHeight || metrics.titleFontPx * 1.08))
+      },
+      {
+        key: 'tagline',
+        height: Math.max(24, Math.round(this.startTagline.displayHeight || metrics.taglineFontPx * 1.35))
+      },
+      { key: 'mode', height: metrics.modeHeight },
+      { key: 'content', height: metrics.contentHeight },
+      { key: 'action', height: metrics.actionHeight },
+      {
+        key: 'links',
+        height: Math.max(16, Math.round(this.startHowToPlayText.displayHeight || metrics.linkFontPx * 1.2))
+      }
+    ];
+    const layout = distributeVerticalSections({
+      top: top + metrics.sectionTopPad,
+      height: panelH - metrics.sectionTopPad - metrics.sectionBottomPad,
+      sections,
+      minGap: metrics.minGap,
+      maxGap: metrics.maxGap
+    });
+    const contentY = (layout.positions.content ?? panelY) - metrics.contentHeight * 0.5;
+    const scoreCenterX = scoreX + scoreW * 0.5;
+    const scoreFirstY = contentY + metrics.headerStripHeight + metrics.scoreCardHeight * 0.5 + 18;
+    const scoreSecondY = scoreFirstY + metrics.scoreCardHeight + metrics.scoreCardGap;
 
     return {
+      metrics,
       panelX,
       panelY,
       panelW,
@@ -1753,18 +1770,34 @@ export class UIScene extends Phaser.Scene {
       scoreX,
       scoreW,
       contentY,
-      contentH,
-      kickerY,
-      titleY,
-      taglineY,
-      modeY,
-      actionY,
-      linksY
+      contentH: metrics.contentHeight,
+      kickerY: layout.positions.kicker,
+      titleY: layout.positions.title,
+      taglineY: layout.positions.tagline,
+      modeY: layout.positions.mode,
+      actionY: layout.positions.action,
+      actionH: metrics.actionHeight,
+      linksY: layout.positions.links,
+      gap: layout.gap,
+      modeH: metrics.modeHeight,
+      modeBackingW: metrics.modeBackingWidth,
+      modeButtonW: Math.floor((metrics.modeBackingWidth - 22) * 0.5),
+      modeButtonH: metrics.modeButtonHeight,
+      modeButtonOffsetX: Math.round(metrics.modeBackingWidth * 0.25),
+      bodyInsetY: metrics.headerStripHeight + 8,
+      bodyInsetX: 14,
+      headerStripH: metrics.headerStripHeight,
+      scoreCenterX,
+      scoreCardH: metrics.scoreCardHeight,
+      scoreFirstY,
+      scoreSecondY,
+      linkOffsetX: metrics.linkOffsetX
     };
   }
 
   drawStartDecor(startLayout = this.getStartOverlayLayout()) {
     this.startDeco.clear();
+    const metrics = startLayout.metrics ?? this.startScreenMetrics ?? getStartScreenMetrics({ compact: this.compactLayout });
     const panelX = startLayout.panelX;
     const panelY = startLayout.panelY;
     const left = startLayout.left;
@@ -1778,56 +1811,80 @@ export class UIScene extends Phaser.Scene {
     const scoreW = startLayout.scoreW;
     const scoreH = startLayout.contentH;
     const actionX = startLayout.contentX;
-    const actionY = Math.round(startLayout.actionY - 25);
+    const actionY = Math.round(startLayout.actionY - startLayout.actionH * 0.5);
     const actionW = startLayout.contentW;
-    const actionH = 50;
+    const actionH = startLayout.actionH;
 
     // Ambient fill circles
     this.startDeco.fillStyle(0xf2b84b, 0.07);
-    this.startDeco.fillCircle(panelX - 238, panelY - 116, 88);
+    this.startDeco.fillCircle(
+      panelX - metrics.decorLeftX,
+      panelY - metrics.decorLeftY,
+      metrics.decorLeftOuterRadius
+    );
     this.startDeco.fillStyle(0x7fe7dc, 0.06);
-    this.startDeco.fillCircle(panelX + 266, panelY - 72, 62);
+    this.startDeco.fillCircle(
+      panelX + metrics.decorRightX,
+      panelY - metrics.decorRightY,
+      metrics.decorRightOuterRadius
+    );
 
     this.startDeco.lineStyle(2, 0xf2b84b, 0.2);
-    this.startDeco.strokeCircle(panelX - 238, panelY - 116, 88);
-    this.startDeco.strokeCircle(panelX - 238, panelY - 116, 56);
+    this.startDeco.strokeCircle(
+      panelX - metrics.decorLeftX,
+      panelY - metrics.decorLeftY,
+      metrics.decorLeftOuterRadius
+    );
+    this.startDeco.strokeCircle(
+      panelX - metrics.decorLeftX,
+      panelY - metrics.decorLeftY,
+      metrics.decorLeftInnerRadius
+    );
     this.startDeco.lineStyle(2, 0x7fe7dc, 0.22);
-    this.startDeco.strokeCircle(panelX + 266, panelY - 72, 62);
-    this.startDeco.strokeCircle(panelX + 266, panelY - 72, 34);
+    this.startDeco.strokeCircle(
+      panelX + metrics.decorRightX,
+      panelY - metrics.decorRightY,
+      metrics.decorRightOuterRadius
+    );
+    this.startDeco.strokeCircle(
+      panelX + metrics.decorRightX,
+      panelY - metrics.decorRightY,
+      metrics.decorRightInnerRadius
+    );
 
     // Corner tech lines
     this.startDeco.lineStyle(3, 0xf2b84b, 0.22);
     this.startDeco.beginPath();
     this.startDeco.moveTo(left + 34, top + 50);
-    this.startDeco.lineTo(left + 180, top + 50);
-    this.startDeco.lineTo(left + 206, top + 76);
-    this.startDeco.lineTo(left + 320, top + 76);
+    this.startDeco.lineTo(left + 34 + metrics.cornerOffset, top + 50);
+    this.startDeco.lineTo(left + 60 + metrics.cornerOffset, top + 76);
+    this.startDeco.lineTo(left + 174 + metrics.cornerOffset, top + 76);
     this.startDeco.strokePath();
 
     // ── Content boxes ──────────────────────────────────────────────────────────
     // Mission box: left 60% of content area
     this.startDeco.fillStyle(0x08141d, 0.94);
-    this.startDeco.fillRoundedRect(missionX, missionY, missionW, missionH, 16);
+    this.startDeco.fillRoundedRect(missionX, missionY, missionW, missionH, metrics.boxRadius);
     // Score box: right side
     this.startDeco.fillStyle(0x0d1d27, 0.96);
-    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, scoreH, 16);
+    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, scoreH, metrics.boxRadius);
     // Action bar: full content width
     this.startDeco.fillStyle(0x071018, 0.98);
-    this.startDeco.fillRoundedRect(actionX, actionY, actionW, actionH, 16);
+    this.startDeco.fillRoundedRect(actionX, actionY, actionW, actionH, metrics.boxRadius);
 
     // Header strips inside boxes
     this.startDeco.fillStyle(0x103040, 0.65);
-    this.startDeco.fillRoundedRect(missionX, missionY, missionW, 30, 16);
+    this.startDeco.fillRoundedRect(missionX, missionY, missionW, startLayout.headerStripH, metrics.boxRadius);
     this.startDeco.fillStyle(0x3a2a0f, 0.62);
-    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, 30, 16);
+    this.startDeco.fillRoundedRect(scoreX, scoreY, scoreW, startLayout.headerStripH, metrics.boxRadius);
 
     // Box outlines
     this.startDeco.lineStyle(2, 0x7fe7dc, 0.18);
-    this.startDeco.strokeRoundedRect(missionX, missionY, missionW, missionH, 16);
+    this.startDeco.strokeRoundedRect(missionX, missionY, missionW, missionH, metrics.boxRadius);
     this.startDeco.lineStyle(2, 0xf2b84b, 0.18);
-    this.startDeco.strokeRoundedRect(scoreX, scoreY, scoreW, scoreH, 16);
+    this.startDeco.strokeRoundedRect(scoreX, scoreY, scoreW, scoreH, metrics.boxRadius);
     this.startDeco.lineStyle(2, 0xf2b84b, 0.36);
-    this.startDeco.strokeRoundedRect(actionX, actionY, actionW, actionH, 16);
+    this.startDeco.strokeRoundedRect(actionX, actionY, actionW, actionH, metrics.boxRadius);
   }
 
   // ── HUD update ────────────────────────────────────────────────────────────────
@@ -1965,6 +2022,7 @@ export class UIScene extends Phaser.Scene {
     const isGameOver = Boolean(overlay && overlay.type === 'gameover');
     const isHelp = Boolean(overlay && overlay.type === 'help');
     const isUnified = isTurn || isGameOver || isHelp;
+    const startMetrics = this.startScreenMetrics ?? getStartScreenMetrics({ compact: this.compactLayout });
     this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
     this.tweens.killTweensOf(this.startOverlayContent);
 
@@ -2082,6 +2140,16 @@ export class UIScene extends Phaser.Scene {
     this.overlayPrompt.setText(overlay.prompt ?? '');
     this.startKicker.setText(overlay.kicker ?? '');
     this.startTagline.setText(overlay.tagline ?? '');
+    this.startKicker.setFontSize(`${startMetrics.kickerFontPx}px`);
+    this.startTagline.setFontSize(`${startMetrics.taglineFontPx}px`);
+    this.startModeCpuText.setFontSize(`${startMetrics.modeFontPx}px`);
+    this.startModeLocalText.setFontSize(`${startMetrics.modeFontPx}px`);
+    this.startBodyLabel.setFontSize(`${startMetrics.labelFontPx}px`);
+    this.startScoreLabel.setFontSize(`${startMetrics.labelFontPx}px`);
+    this.startScoreAmber.setFontSize(`${startMetrics.scoreFontPx}px`);
+    this.startScoreCyan.setFontSize(`${startMetrics.scoreFontPx}px`);
+    this.startHowToPlayText.setFontSize(`${startMetrics.linkFontPx}px`);
+    this.startSwitchModeText.setFontSize(`${startMetrics.linkFontPx}px`);
     this.startBodyLabel.setText('MISSION');
     this.startScoreLabel.setText('HIGHSCORE');
     const scoreEntries = overlay.scores ?? [];
@@ -2102,7 +2170,7 @@ export class UIScene extends Phaser.Scene {
     this.overlayPrompt.setAlpha(1);
     this.overlayTitle.setFontSize(
       overlay.type === 'start'
-        ? '78px'
+        ? `${startMetrics.titleFontPx}px`
         : isTurn
           ? (this.compactLayout ? '34px' : '38px')
           : isUnified
@@ -2117,15 +2185,21 @@ export class UIScene extends Phaser.Scene {
     );
     this.overlayPrompt.setFontSize(
       overlay.type === 'start'
-        ? '22px'
+        ? `${startMetrics.promptFontPx}px`
         : isTurn
-          ? (this.compactLayout ? '15px' : '16px')
+          ? (this.compactLayout ? '30px' : '32px')
           : isUnified
             ? (this.compactLayout ? '18px' : '20px')
             : '20px'
     );
-    this.overlayBody.setFontSize(isTurn ? (this.compactLayout ? '15px' : '16px') : '17px');
-    this.overlayBody.setLineSpacing(isTurn ? 5 : 7);
+    this.overlayBody.setFontSize(
+      isStart
+        ? `${startMetrics.bodyFontPx}px`
+        : isTurn
+          ? (this.compactLayout ? '15px' : '16px')
+          : '17px'
+    );
+    this.overlayBody.setLineSpacing(isStart ? startMetrics.bodyLineSpacing : isTurn ? 5 : 7);
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
     this.overlayBody.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
@@ -2190,8 +2264,8 @@ export class UIScene extends Phaser.Scene {
     // ── Panel size and positions ───────────────────────────────────────────────
     if (isStart) {
       this.overlayPanel.width = this.compactLayout ? 980 : 940;
-      this.overlayPanel.height = this.compactLayout ? 620 : 590;
-      this.overlayPanel.y = GAME_HEIGHT * 0.5 + 16;
+      this.overlayPanel.height = startMetrics.panelHeight;
+      this.overlayPanel.y = startMetrics.panelY;
     } else if (isUnified) {
       const layout = this.getUnifiedDialogLayout();
       this.overlayPanel.width = layout.panel.width;
@@ -2212,20 +2286,26 @@ export class UIScene extends Phaser.Scene {
       this.startTagline.y = startLayout.taglineY;
 
       // Mode buttons
+      this.startModeBacking.width = startLayout.modeBackingW;
+      this.startModeBacking.height = startLayout.modeH;
       this.startModeBacking.y = startLayout.modeY;
-      this.startModeCpuButton.x = GAME_WIDTH * 0.5 - 82;
+      this.startModeCpuButton.width = startLayout.modeButtonW;
+      this.startModeCpuButton.height = startLayout.modeButtonH;
+      this.startModeCpuButton.x = GAME_WIDTH * 0.5 - startLayout.modeButtonOffsetX;
       this.startModeCpuButton.y = startLayout.modeY;
-      this.startModeLocalButton.x = GAME_WIDTH * 0.5 + 82;
+      this.startModeLocalButton.width = startLayout.modeButtonW;
+      this.startModeLocalButton.height = startLayout.modeButtonH;
+      this.startModeLocalButton.x = GAME_WIDTH * 0.5 + startLayout.modeButtonOffsetX;
       this.startModeLocalButton.y = startLayout.modeY;
-      this.startModeCpuText.x = GAME_WIDTH * 0.5 - 82;
+      this.startModeCpuText.x = GAME_WIDTH * 0.5 - startLayout.modeButtonOffsetX;
       this.startModeCpuText.y = startLayout.modeY;
-      this.startModeLocalText.x = GAME_WIDTH * 0.5 + 82;
+      this.startModeLocalText.x = GAME_WIDTH * 0.5 + startLayout.modeButtonOffsetX;
       this.startModeLocalText.y = startLayout.modeY;
 
       // Mission box text
-      this.overlayBody.x = startLayout.contentX + 14;
-      this.overlayBody.y = startLayout.contentY + 38;
-      this.overlayBody.setWordWrapWidth(startLayout.missionW - 26, true);
+      this.overlayBody.x = startLayout.contentX + startLayout.bodyInsetX;
+      this.overlayBody.y = startLayout.contentY + startLayout.bodyInsetY;
+      this.overlayBody.setWordWrapWidth(startLayout.missionW - startLayout.bodyInsetX * 2, true);
 
       // Score box labels
       this.startBodyLabel.x = startLayout.contentX + 12;
@@ -2234,27 +2314,31 @@ export class UIScene extends Phaser.Scene {
       this.startScoreLabel.y = startLayout.contentY + 9;
 
       // Score cards
-      const scoreCenterX = startLayout.scoreX + startLayout.scoreW * 0.5;
-      this.startScoreAmberCard.x = scoreCenterX;
-      this.startScoreAmberCard.y = startLayout.contentY + 64;
-      this.startScoreCyanCard.x = scoreCenterX;
-      this.startScoreCyanCard.y = startLayout.contentY + 120;
-      this.startScoreAmber.x = scoreCenterX;
-      this.startScoreAmber.y = startLayout.contentY + 64;
-      this.startScoreCyan.x = scoreCenterX;
-      this.startScoreCyan.y = startLayout.contentY + 120;
+      this.startScoreAmberCard.width = Math.max(240, startLayout.scoreW - 24);
+      this.startScoreAmberCard.height = startLayout.scoreCardH;
+      this.startScoreCyanCard.width = Math.max(240, startLayout.scoreW - 24);
+      this.startScoreCyanCard.height = startLayout.scoreCardH;
+      this.startScoreAmberCard.x = startLayout.scoreCenterX;
+      this.startScoreAmberCard.y = startLayout.scoreFirstY;
+      this.startScoreCyanCard.x = startLayout.scoreCenterX;
+      this.startScoreCyanCard.y = startLayout.scoreSecondY;
+      this.startScoreAmber.x = startLayout.scoreCenterX;
+      this.startScoreAmber.y = startLayout.scoreFirstY;
+      this.startScoreCyan.x = startLayout.scoreCenterX;
+      this.startScoreCyan.y = startLayout.scoreSecondY;
 
       // Action bar
       this.startActionBacking.width = startLayout.contentW;
+      this.startActionBacking.height = startLayout.actionH;
       this.startActionBacking.x = GAME_WIDTH * 0.5;
       this.startActionBacking.y = startLayout.actionY;
       this.overlayPrompt.y = startLayout.actionY;
       this.overlayPrompt.setWordWrapWidth(startLayout.contentW - 24, true);
 
       // "How to Play" and "Switch Mode" links below action bar
-      this.startHowToPlayText.x = GAME_WIDTH * 0.5 - 100;
+      this.startHowToPlayText.x = GAME_WIDTH * 0.5 - startLayout.linkOffsetX;
       this.startHowToPlayText.y = startLayout.linksY;
-      this.startSwitchModeText.x = GAME_WIDTH * 0.5 + 100;
+      this.startSwitchModeText.x = GAME_WIDTH * 0.5 + startLayout.linkOffsetX;
       this.startSwitchModeText.y = startLayout.linksY;
 
       this.drawStartDecor(startLayout);
