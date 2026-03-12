@@ -28,11 +28,17 @@ import { OverlayStateSystem } from '../systems/OverlayStateSystem.js';
 import { ScoreStore } from '../systems/ScoreStore.js';
 import { Terrain } from '../systems/Terrain.js';
 import { TelemetrySystem } from '../systems/TelemetrySystem.js';
-import { playBattleSong, setBattleSongSource, stopBattleSong } from '../systems/BattleSongManager.js';
+import {
+  playBattleSong,
+  setBattleSongSource,
+  setBattleSongVolumeLevel,
+  stopBattleSong
+} from '../systems/BattleSongManager.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
-import { playTitleSong, stopTitleSong } from '../systems/TitleSongManager.js';
+import { playTitleSong, setTitleSongVolumeLevel, stopTitleSong } from '../systems/TitleSongManager.js';
 import { InputController } from '../systems/InputController.js';
 import { VisualFxPool } from '../systems/VisualFxPool.js';
+import { clampAudioLevel } from '../systems/audioMixConfig.js';
 import {
   bumpCombatEnergy,
   decayCombatEnergy,
@@ -131,6 +137,7 @@ export class GameScene extends Phaser.Scene {
     this.attractSceneTurnLimit = 0;
     this.attractRestartEvent = null;
     this.currentDemoSlogan = '';
+    this.applyAudioMixPreferences();
   }
 
   blockPointerInput(durationMs = 160) {
@@ -438,6 +445,7 @@ export class GameScene extends Phaser.Scene {
   setAudioEnabled(enabled) {
     this.audioEnabled = Boolean(enabled);
     this.audioManager?.setMuted(!this.audioEnabled);
+    this.applyAudioMixPreferences();
     if (this.audioEnabled) {
       this.audioManager?.unlock();
       this.audioManager?.setWind(this.wind ?? 0);
@@ -467,13 +475,23 @@ export class GameScene extends Phaser.Scene {
       return;
     }
 
-    const normalized = Boolean(value);
+    let normalized;
+    if (key === 'sound' || key === 'fullscreen') {
+      normalized = Boolean(value);
+    } else if (key === 'musicVolume' || key === 'sfxVolume') {
+      normalized = clampAudioLevel(value, this.startPreferences[key]);
+    } else {
+      return;
+    }
     this.startPreferences[key] = normalized;
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
     if (key === 'sound') {
       this.setAudioEnabled(normalized);
     } else if (key === 'fullscreen') {
       this.setFullscreenEnabled(normalized);
+    } else {
+      this.applyAudioMixPreferences();
+      this.syncTitleMusicState(this.overlayState);
     }
     if (this.overlayState?.type === 'start') {
       this.showStartOverlay();
@@ -488,6 +506,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   applyStartPreferences({ requestFullscreen = false } = {}) {
+    this.applyAudioMixPreferences();
     this.setAudioEnabled(this.startPreferences.sound);
     this.setFullscreenEnabled(this.startPreferences.fullscreen);
 
@@ -541,6 +560,14 @@ export class GameScene extends Phaser.Scene {
 
   isCpuControlledPlayer(index = this.turnIndex) {
     return this.attractModeActive || (this.currentMode === 'cpu' && index === 1);
+  }
+
+  applyAudioMixPreferences() {
+    const musicLevel = this.startPreferences?.musicVolume ?? 1;
+    const sfxLevel = this.startPreferences?.sfxVolume ?? 1;
+    this.audioManager?.setEffectsLevel(sfxLevel);
+    setTitleSongVolumeLevel(musicLevel);
+    setBattleSongVolumeLevel(musicLevel);
   }
 
   cycleWeapon(player, direction) {

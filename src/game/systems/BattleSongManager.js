@@ -1,5 +1,17 @@
+import {
+  BASE_BATTLE_SONG_VOLUME,
+  clampAudioLevel,
+  DEFAULT_AUDIO_LEVEL,
+  resolveSongVolume
+} from './audioMixConfig.js';
+
 let sourceUrl = '';
 let battleSong = null;
+let battleSongLevel = DEFAULT_AUDIO_LEVEL;
+
+function getBattleSongVolume() {
+  return resolveSongVolume(BASE_BATTLE_SONG_VOLUME, battleSongLevel);
+}
 
 function ensureBattleSong() {
   if (!sourceUrl) {
@@ -9,9 +21,16 @@ function ensureBattleSong() {
     battleSong = new Audio(sourceUrl);
     battleSong.loop = true;
     battleSong.preload = 'auto';
-    battleSong.volume = 0.06;
+    battleSong.volume = getBattleSongVolume();
   }
   return battleSong;
+}
+
+export function setBattleSongVolumeLevel(level) {
+  battleSongLevel = clampAudioLevel(level, DEFAULT_AUDIO_LEVEL);
+  if (battleSong) {
+    battleSong.volume = getBattleSongVolume();
+  }
 }
 
 export function setBattleSongSource(url) {

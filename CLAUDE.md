@@ -29,7 +29,10 @@ The two scenes never call each other directly except `this.scene.get('game')` in
 |------|---------|
 | `src/game/systems/Terrain.js` | Canvas-based terrain: procedural generation (4 presets), pixel collision (`isSolid`), crater deformation (`deformCircle`), surface-Y cache |
 | `src/game/systems/WeatherSystem.js` | Rain/fog/storm per match; exposes `gravityModifier()` and `applyStormWind()` |
-| `src/game/systems/AudioManager.js` | Web Audio synthesis only — no audio files |
+| `src/game/systems/AudioManager.js` | Web Audio synthesis for gameplay SFX/ambience with a dedicated effects gain stage |
+| `src/game/systems/TitleSongManager.js` | HTMLAudio-based title music loop with configurable music level |
+| `src/game/systems/BattleSongManager.js` | HTMLAudio-based battle music loop with configurable music level |
+| `src/game/systems/audioMixConfig.js` | Shared audio level defaults, clamps and stepping helpers |
 | `src/game/systems/ScoreStore.js` | localStorage persistence |
 | `src/game/entities/Tank.js` | Phaser Container; owns `ammo` map, `pitch`, `power`, `weaponIndex` |
 | `src/game/weapons.js` | `WEAPONS` array — single source of truth for all weapon stats including `ammo` (null = unlimited) and `maxBounces` |
@@ -57,7 +60,7 @@ GameScene holds `this.overlayState` (null or a plain object with `type`, `title`
 ## Conventions
 
 - JavaScript only (no TypeScript).
-- Phaser audio disabled globally; all sound goes through `AudioManager` (Web Audio API).
+- Phaser audio disabled globally; gameplay SFX go through `AudioManager` (Web Audio API), while title/battle music use dedicated HTML audio managers.
 - Terrain uses `destination-out` composite op to carve craters — always `save()`/`restore()` around it.
 - `syncHud()` emits the full HUD state; call it after any state change visible in the HUD.
 - `markPredictionDirty()` triggers a prediction redraw next frame — call after pitch/power/weapon/terrain changes.

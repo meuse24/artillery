@@ -1,3 +1,5 @@
+import { formatAudioLevelPercent, stepAudioLevel } from '../systems/audioMixConfig.js';
+
 export function toggleBootPreference(preferences, key) {
   if (!preferences || !(key in preferences)) {
     return preferences;
@@ -30,16 +32,37 @@ export function getBootOrientationState({ isTouchDevice = false, viewportWidth =
 export function getBootPreferenceViewModel(preferences) {
   const fullscreenOn = Boolean(preferences?.fullscreen);
   const soundOn = Boolean(preferences?.sound);
+  const musicVolume = preferences?.musicVolume ?? 1;
+  const sfxVolume = preferences?.sfxVolume ?? 1;
 
   return {
     fullscreenText: `(F) Fullscreen: ${fullscreenOn ? 'ON' : 'OFF'}`,
     soundText: `(S) Sound: ${soundOn ? 'ON' : 'OFF'}`,
+    musicText: `< Music ${formatAudioLevelPercent(musicVolume)} > (Q/W)`,
+    sfxText: `< SFX ${formatAudioLevelPercent(sfxVolume)} > (A/D)`,
     fullscreenFill: fullscreenOn ? 0x183e53 : 0x17222c,
     fullscreenStrokeAlpha: fullscreenOn ? 0.34 : 0.16,
     soundFill: soundOn ? 0x3f311e : 0x1f252c,
     soundStrokeAlpha: soundOn ? 0.34 : 0.16,
+    musicFill: soundOn && musicVolume > 0 ? 0x173226 : 0x17222c,
+    musicStrokeAlpha: soundOn ? 0.18 + musicVolume * 0.26 : 0.12,
+    sfxFill: soundOn && sfxVolume > 0 ? 0x332417 : 0x1f252c,
+    sfxStrokeAlpha: soundOn ? 0.18 + sfxVolume * 0.26 : 0.12,
     fullscreenTextColor: fullscreenOn ? '#dff9f5' : '#a0b4bf',
-    soundTextColor: soundOn ? '#ffe3b2' : '#acaba1'
+    soundTextColor: soundOn ? '#ffe3b2' : '#acaba1',
+    musicTextColor: soundOn && musicVolume > 0 ? '#d8f6e7' : '#9ca8a4',
+    sfxTextColor: soundOn && sfxVolume > 0 ? '#ffe0b6' : '#aaa39a'
+  };
+}
+
+export function adjustBootPreferenceLevel(preferences, key, direction) {
+  if (!preferences || !(key in preferences)) {
+    return preferences;
+  }
+
+  return {
+    ...preferences,
+    [key]: stepAudioLevel(preferences[key], direction)
   };
 }
 

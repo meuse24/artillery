@@ -1,19 +1,29 @@
+import { clampAudioLevel, DEFAULT_AUDIO_LEVEL } from './audioMixConfig.js';
+
 export const LAUNCH_PREFERENCES_STORAGE_KEY = 'crater-command.launch-preferences';
 
 export const DEFAULT_LAUNCH_PREFERENCES = Object.freeze({
   fullscreen: true,
-  sound: true
+  sound: true,
+  musicVolume: DEFAULT_AUDIO_LEVEL,
+  sfxVolume: DEFAULT_AUDIO_LEVEL
 });
 
 function normalizeBoolean(value, fallback) {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+function normalizeAudioLevel(value, fallback) {
+  return Number.isFinite(value) ? clampAudioLevel(value, fallback) : fallback;
+}
+
 export function normalizeLaunchPreferences(raw = {}) {
   const source = raw && typeof raw === 'object' ? raw : {};
   return {
     fullscreen: normalizeBoolean(source.fullscreen, DEFAULT_LAUNCH_PREFERENCES.fullscreen),
-    sound: normalizeBoolean(source.sound, DEFAULT_LAUNCH_PREFERENCES.sound)
+    sound: normalizeBoolean(source.sound, DEFAULT_LAUNCH_PREFERENCES.sound),
+    musicVolume: normalizeAudioLevel(source.musicVolume, DEFAULT_LAUNCH_PREFERENCES.musicVolume),
+    sfxVolume: normalizeAudioLevel(source.sfxVolume, DEFAULT_LAUNCH_PREFERENCES.sfxVolume)
   };
 }
 

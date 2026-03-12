@@ -75,3 +75,7 @@ Original prompt: verwende den skill develop-web-game und prüfe das game.
 - 2026-03-12: Attract-Demo wieder etwas gekuerzt: Demo-Phase jetzt rund 20 Sekunden; ausserdem fuehrt jetzt jeder Klick waehrend `demo` sofort zurueck auf den Startscreen.
 - 2026-03-12: Demo-Mode unten mittig um einen fetzigen Fight-Slogan erweitert: `STEEL. FIRE. TOTAL DOMINATION.` als grosses, leicht pulsierendes Label nur waehrend `demo`.
 - 2026-03-12: Demo-Slogan jetzt oberhalb der unteren Controls-Leiste positioniert, damit nichts ueberlappt; ausserdem Slogan-Pool mit wechselndem Spruch pro Demo-Aufruf (`demoSloganModel.js`).
+- 2026-03-12: Audio-Prefs erweitert: `LaunchPreferencesStore` persistiert jetzt getrennte `musicVolume`- und `sfxVolume`-Werte; Bootscreen bekam dafuer zwei eigene Pegel-Controls (`< Music >`, `< SFX >`) plus `Q/W`- und `A/D`-Hotkeys.
+- 2026-03-12: Mix-Routing bereinigt: `AudioManager` hat jetzt einen separaten Effects-Gain vor dem Master-Bus, waehrend `TitleSongManager` und `BattleSongManager` eigene konfigurierbare Musik-Level behalten; README/CLAUDE entsprechend korrigiert.
+- 2026-03-12: Verifikation fuer Audio-Prefs erfolgreich: `npm test` (65 Tests), `npm run lint`, `npm run build`.
+- 2026-03-12: Skill-Client-Smoke-Test versucht; der externe Skill-Client scheitert lokal an der ESM-Aufloesung von `playwright`, weil das Script ausserhalb des Repo-`node_modules` liegt. Repo-eigener Browser-Client blieb deshalb in diesem Turn ungenutzt.

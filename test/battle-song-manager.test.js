@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   playBattleSong,
   setBattleSongSource,
+  setBattleSongVolumeLevel,
   stopBattleSong
 } from '../src/game/systems/BattleSongManager.js';
 
@@ -46,10 +47,14 @@ test('BattleSongManager creates one low-volume looping background track', () => 
     assert.equal(created[0].volume, 0.06);
     assert.equal(created[0].paused, false);
 
+    setBattleSongVolumeLevel(0.5);
+    assert.equal(created[0].volume, 0.03);
+
     stopBattleSong({ reset: true });
     assert.equal(created[0].paused, true);
     assert.equal(created[0].currentTime, 0);
   } finally {
+    setBattleSongVolumeLevel(1);
     stopBattleSong({ reset: true });
     if (originalAudio === undefined) {
       delete globalThis.Audio;

@@ -261,10 +261,11 @@ Test-Workflow:
 
 - `src/main.js`
   - Phaser-Konfiguration, Scale-Setup, Szenenregistrierung
-  - Phaser-eigenes Audio ist deaktiviert; Audio laeuft ueber den eigenen `AudioManager`
+  - Phaser-eigenes Audio ist deaktiviert; SFX/Atmos ueber Web Audio, Musik ueber eigene Song-Manager
 - `src/game/scenes/BootScene.js`
   - Technischer Einstiegspunkt und Standalone-Screen.
-  - Handelt Audio-Unlock, Fullscreen-Anfragen und initiale Benutzereinstellungen (Sound/Fullscreen) ab.
+  - Handelt Audio-Unlock, Fullscreen-Anfragen und initiale Benutzereinstellungen (Sound/Fullscreen/Music/SFX) ab.
+  - Erzeugt kleine Boot-UI-Pings ueber einen separaten UI-`AudioContext`, damit der Startscreen ohne Gameplay-Szene reagieren kann.
   - Persistiert Einstellungen via `LaunchPreferencesStore` im `localStorage`.
   - Startet Game/UI erst nach Benutzer-Interaktion ("START") mit Fade-Transition und entfernt sich danach selbst aus dem Speicher.
 - `src/game/scenes/GameScene.js`
@@ -313,8 +314,15 @@ Test-Workflow:
   - Waffenprofile fuer Mechanik, Munitionslimits und VFX/SFX-Identity
 - `src/game/systems/AudioManager.js`
   - Web-Audio-Synthese fuer Wind, Drive/Ketten, Combat-Bed, Waffen, Flybys und filmische Echo-/Impact-Layer
+  - besitzt jetzt einen separaten Effects-Gain vor dem Master-Bus, damit SFX global getrennt von Musik skaliert werden koennen
+- `src/game/systems/audioMixConfig.js`
+  - zentrale Audio-Mix-Konstanten und Clamp/Step-Helper fuer Musik- und SFX-Level
 - `src/game/systems/BattleSongManager.js`
-  - verwaltet den Battle-Loop als externes OGG-Audioelement
+  - verwaltet den Battle-Loop als externes OGG-Audioelement inklusive konfigurierbarem Musik-Level
+- `src/game/systems/TitleSongManager.js`
+  - verwaltet die Title-Music als externes OGG-Audioelement inklusive konfigurierbarem Musik-Level
+- `src/game/systems/LaunchPreferencesStore.js`
+  - persistiert `fullscreen`, `sound`, `musicVolume` und `sfxVolume`
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
 - `src/game/systems/InputController.js`

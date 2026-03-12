@@ -1,5 +1,17 @@
+import {
+  BASE_TITLE_SONG_VOLUME,
+  clampAudioLevel,
+  DEFAULT_AUDIO_LEVEL,
+  resolveSongVolume
+} from './audioMixConfig.js';
+
 let sourceUrl = '';
 let titleSong = null;
+let titleSongLevel = DEFAULT_AUDIO_LEVEL;
+
+function getTitleSongVolume() {
+  return resolveSongVolume(BASE_TITLE_SONG_VOLUME, titleSongLevel);
+}
 
 function ensureTitleSong() {
   if (!sourceUrl) {
@@ -9,9 +21,16 @@ function ensureTitleSong() {
     titleSong = new Audio(sourceUrl);
     titleSong.loop = true;
     titleSong.preload = 'auto';
-    titleSong.volume = 0.28;
+    titleSong.volume = getTitleSongVolume();
   }
   return titleSong;
+}
+
+export function setTitleSongVolumeLevel(level) {
+  titleSongLevel = clampAudioLevel(level, DEFAULT_AUDIO_LEVEL);
+  if (titleSong) {
+    titleSong.volume = getTitleSongVolume();
+  }
 }
 
 export function setTitleSongSource(url) {

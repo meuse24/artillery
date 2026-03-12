@@ -1,3 +1,5 @@
+import { clampAudioLevel, DEFAULT_AUDIO_LEVEL } from './audioMixConfig.js';
+
 export class AudioManager {
   constructor() {
     this.context = null;
@@ -46,6 +48,8 @@ export class AudioManager {
     this.combatRumbleGain = null;
     this.sfxBoost = 2.2;
     this.uiBoost = 1.35;
+    this.effectsLevel = DEFAULT_AUDIO_LEVEL;
+    this.effectsGain = null;
     this.masterMakeupGain = 4.5;
     this.masterBus = null;
     this.masterComp = null;
@@ -55,6 +59,18 @@ export class AudioManager {
 
   scaleGain(gain, boost = this.sfxBoost) {
     return Math.min(1.8, gain * boost);
+  }
+
+  setEffectsLevel(level) {
+    this.effectsLevel = clampAudioLevel(level);
+    if (!this.context) {
+      return;
+    }
+
+    this.ensureMasterBus();
+    const now = this.context.currentTime;
+    this.effectsGain?.gain.cancelScheduledValues(now);
+    this.effectsGain?.gain.linearRampToValueAtTime(this.effectsLevel, now + 0.05);
   }
 
   setMuted(muted) {
@@ -673,6 +689,8 @@ export class AudioManager {
   ensureMasterBus() {
     if (this.masterBus) return;
     if (!this.context) return;
+    this.effectsGain = this.context.createGain();
+    this.effectsGain.gain.setValueAtTime(this.effectsLevel, 0);
     // Light glue compressor – keeps peaks in check without squashing dynamics
     this.masterComp = this.context.createDynamicsCompressor();
     this.masterComp.threshold.setValueAtTime(-6, 0);
@@ -691,6 +709,7 @@ export class AudioManager {
     this.masterLimiter.attack.setValueAtTime(0.001, 0);
     this.masterLimiter.release.setValueAtTime(0.04, 0);
 
+    this.effectsGain.connect(this.masterComp);
     this.masterComp.connect(this.masterGain);
     this.masterGain.connect(this.masterLimiter);
     this.masterLimiter.connect(this.context.destination);
@@ -700,7 +719,7 @@ export class AudioManager {
   /** Returns the master bus node (or destination as fallback) */
   out() {
     this.ensureMasterBus();
-    return this.masterBus || this.context.destination;
+    return this.effectsGain || this.masterBus || this.context.destination;
   }
 
   // ── Advanced synthesis helpers ──────────────────────────────────────────────

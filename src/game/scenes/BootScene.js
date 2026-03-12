@@ -2,10 +2,16 @@ import Phaser from 'phaser';
 import titleSongUrl from '../../../cratercommand.ogg?url';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants.js';
 import { SCENE_KEYS } from '../config/sceneContracts.js';
-import { stopBattleSong } from '../systems/BattleSongManager.js';
+import { setBattleSongVolumeLevel, stopBattleSong } from '../systems/BattleSongManager.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
-import { playTitleSong, setTitleSongSource, stopTitleSong } from '../systems/TitleSongManager.js';
 import {
+  playTitleSong,
+  setTitleSongSource,
+  setTitleSongVolumeLevel,
+  stopTitleSong
+} from '../systems/TitleSongManager.js';
+import {
+  adjustBootPreferenceLevel,
   getBootUiPingConfig,
   getBootOrientationState,
   getBootPreferenceViewModel,
@@ -26,6 +32,7 @@ export class BootScene extends Phaser.Scene {
   create() {
     this.startPreferences = loadLaunchPreferences();
     this.bootOrientationState = getBootOrientationState();
+    this.applyAudioMixPreferences();
     setTitleSongSource(titleSongUrl);
     if (!this.startPreferences.sound) {
       stopTitleSong();
@@ -114,6 +121,28 @@ export class BootScene extends Phaser.Scene {
         .on('pointerout', () => this.updatePreferenceLabels());
     });
 
+    this.musicButton = this.createToggleButton(GAME_WIDTH * 0.5 - 148, GAME_HEIGHT * 0.5 + 120, 0x173226, 0x8fe3bf);
+    this.sfxButton = this.createToggleButton(GAME_WIDTH * 0.5 + 148, GAME_HEIGHT * 0.5 + 120, 0x332417, 0xffcf8a);
+    this.musicText = this.createToggleText(GAME_WIDTH * 0.5 - 148, GAME_HEIGHT * 0.5 + 120);
+    this.sfxText = this.createToggleText(GAME_WIDTH * 0.5 + 148, GAME_HEIGHT * 0.5 + 120);
+
+    [this.musicButton, this.musicText].forEach((item) => {
+      item.setInteractive({ useHandCursor: true }).on('pointerdown', (pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
+        this.adjustLevelPreference('musicVolume', pointer.worldX < this.musicButton.x ? -1 : 1);
+      })
+        .on('pointerover', () => this.musicButton.setStrokeStyle(1.5, 0x8fe3bf, 0.46))
+        .on('pointerout', () => this.updatePreferenceLabels());
+    });
+    [this.sfxButton, this.sfxText].forEach((item) => {
+      item.setInteractive({ useHandCursor: true }).on('pointerdown', (pointer, _lx, _ly, event) => {
+        event?.stopPropagation();
+        this.adjustLevelPreference('sfxVolume', pointer.worldX < this.sfxButton.x ? -1 : 1);
+      })
+        .on('pointerover', () => this.sfxButton.setStrokeStyle(1.5, 0xffcf8a, 0.46))
+        .on('pointerout', () => this.updatePreferenceLabels());
+    });
+
     this.startButton = this.add
       .rectangle(GAME_WIDTH * 0.5, GAME_HEIGHT * 0.5 + 156, 470, 64, 0xf2b84b, 0.32)
       .setStrokeStyle(2, 0xf2b84b, 0.64)
@@ -177,6 +206,10 @@ export class BootScene extends Phaser.Scene {
 
     this.input.keyboard?.on('keydown-F', () => this.togglePreference('fullscreen'));
     this.input.keyboard?.on('keydown-S', () => this.togglePreference('sound'));
+    this.input.keyboard?.on('keydown-Q', () => this.adjustLevelPreference('musicVolume', -1));
+    this.input.keyboard?.on('keydown-W', () => this.adjustLevelPreference('musicVolume', 1));
+    this.input.keyboard?.on('keydown-A', () => this.adjustLevelPreference('sfxVolume', -1));
+    this.input.keyboard?.on('keydown-D', () => this.adjustLevelPreference('sfxVolume', 1));
     this.input.keyboard?.on('keydown-ENTER', () => this.startFromBoot());
     this.input.keyboard?.on('keydown-SPACE', () => this.startFromBoot());
     this.bindViewportWatchers();
@@ -340,6 +373,10 @@ export class BootScene extends Phaser.Scene {
         key: 'toggles',
         height: metrics.toggleHeight
       },
+      {
+        key: 'audioLevels',
+        height: metrics.toggleHeight
+      },
       ...(this.bootOrientationState?.startBlocked
         ? [{
           key: 'hint',
@@ -376,8 +413,14 @@ export class BootScene extends Phaser.Scene {
     this.fullscreenButton.height = metrics.toggleHeight;
     this.soundButton.width = metrics.toggleWidth;
     this.soundButton.height = metrics.toggleHeight;
+    this.musicButton.width = metrics.toggleWidth;
+    this.musicButton.height = metrics.toggleHeight;
+    this.sfxButton.width = metrics.toggleWidth;
+    this.sfxButton.height = metrics.toggleHeight;
     this.fullscreenText.setFontSize(`${metrics.toggleFontPx}px`);
     this.soundText.setFontSize(`${metrics.toggleFontPx}px`);
+    this.musicText.setFontSize(`${metrics.toggleFontPx}px`);
+    this.sfxText.setFontSize(`${metrics.toggleFontPx}px`);
     this.startButton.width = metrics.startButtonWidth;
     this.startButton.height = metrics.startButtonHeight;
     this.startLabel.setFontSize(`${metrics.startFontPx}px`);
@@ -396,6 +439,10 @@ export class BootScene extends Phaser.Scene {
     this.soundButton.setPosition(GAME_WIDTH * 0.5 + 148, layout.positions.toggles ?? this.soundButton.y);
     this.fullscreenText.setPosition(this.fullscreenButton.x, this.fullscreenButton.y);
     this.soundText.setPosition(this.soundButton.x, this.soundButton.y);
+    this.musicButton.setPosition(GAME_WIDTH * 0.5 - 148, layout.positions.audioLevels ?? this.musicButton.y);
+    this.sfxButton.setPosition(GAME_WIDTH * 0.5 + 148, layout.positions.audioLevels ?? this.sfxButton.y);
+    this.musicText.setPosition(this.musicButton.x, this.musicButton.y);
+    this.sfxText.setPosition(this.sfxButton.x, this.sfxButton.y);
     this.orientationHint.setPosition(GAME_WIDTH * 0.5, layout.positions.hint ?? (layout.positions.start ?? this.startButton.y) - 40);
     this.startButton.setPosition(GAME_WIDTH * 0.5, layout.positions.start ?? this.startButton.y);
     this.startLabel.setPosition(this.startButton.x, this.startButton.y);
@@ -412,6 +459,7 @@ export class BootScene extends Phaser.Scene {
 
     this.startPreferences = nextPreferences;
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
+    this.applyAudioMixPreferences();
     if (key === 'sound') {
       if (this.startPreferences.sound) {
         playTitleSong();
@@ -427,18 +475,43 @@ export class BootScene extends Phaser.Scene {
     this.updatePreferenceLabels();
   }
 
+  adjustLevelPreference(key, direction) {
+    const nextPreferences = adjustBootPreferenceLevel(this.startPreferences, key, direction);
+    if (nextPreferences === this.startPreferences) {
+      return;
+    }
+
+    this.startPreferences = nextPreferences;
+    this.startPreferences = saveLaunchPreferences(this.startPreferences);
+    this.applyAudioMixPreferences();
+    if (this.startPreferences.sound && this.startPreferences.sfxVolume > 0) {
+      this.playUiPing(getBootUiPingConfig('default'));
+    } else if (key === 'sfxVolume' && this.startPreferences.sfxVolume <= 0) {
+      this.silenceUiAudioContext();
+    }
+    this.updatePreferenceLabels();
+  }
+
   updatePreferenceLabels() {
     const model = getBootPreferenceViewModel(this.startPreferences);
 
     this.fullscreenText.setText(model.fullscreenText);
     this.soundText.setText(model.soundText);
+    this.musicText.setText(model.musicText);
+    this.sfxText.setText(model.sfxText);
 
     this.fullscreenButton.setFillStyle(model.fullscreenFill, 0.9);
     this.fullscreenButton.setStrokeStyle(1.5, 0x7fe7dc, model.fullscreenStrokeAlpha);
     this.soundButton.setFillStyle(model.soundFill, 0.9);
     this.soundButton.setStrokeStyle(1.5, 0xf2b84b, model.soundStrokeAlpha);
+    this.musicButton.setFillStyle(model.musicFill, 0.9);
+    this.musicButton.setStrokeStyle(1.5, 0x8fe3bf, model.musicStrokeAlpha);
+    this.sfxButton.setFillStyle(model.sfxFill, 0.9);
+    this.sfxButton.setStrokeStyle(1.5, 0xffcf8a, model.sfxStrokeAlpha);
     this.fullscreenText.setColor(model.fullscreenTextColor);
     this.soundText.setColor(model.soundTextColor);
+    this.musicText.setColor(model.musicTextColor);
+    this.sfxText.setColor(model.sfxTextColor);
   }
 
   getViewportSize() {
@@ -584,9 +657,16 @@ export class BootScene extends Phaser.Scene {
     }
     gameScene.setStartPreference?.('fullscreen', this.startPreferences.fullscreen);
     gameScene.setStartPreference?.('sound', this.startPreferences.sound);
+    gameScene.setStartPreference?.('musicVolume', this.startPreferences.musicVolume);
+    gameScene.setStartPreference?.('sfxVolume', this.startPreferences.sfxVolume);
     gameScene.applyStartPreferences?.({ requestFullscreen: false });
     gameScene.syncHud?.();
     this.scene.remove(SCENE_KEYS.BOOT);
+  }
+
+  applyAudioMixPreferences() {
+    setTitleSongVolumeLevel(this.startPreferences?.musicVolume);
+    setBattleSongVolumeLevel(this.startPreferences?.musicVolume);
   }
 
   ensureUiAudioContext() {
@@ -627,7 +707,8 @@ export class BootScene extends Phaser.Scene {
     osc.type = type;
     osc.frequency.setValueAtTime(frequency, startAt);
     amp.gain.setValueAtTime(0.0001, startAt);
-    amp.gain.exponentialRampToValueAtTime(gain, startAt + 0.008);
+    const scaledGain = gain * (this.startPreferences?.sfxVolume ?? 1);
+    amp.gain.exponentialRampToValueAtTime(Math.max(0.0001, scaledGain), startAt + 0.008);
     amp.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
 
     osc.connect(amp);

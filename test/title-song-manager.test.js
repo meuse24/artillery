@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   playTitleSong,
   setTitleSongSource,
+  setTitleSongVolumeLevel,
   stopTitleSong
 } from '../src/game/systems/TitleSongManager.js';
 
@@ -46,6 +47,9 @@ test('TitleSongManager creates one audio instance per source and controls playba
     assert.equal(created[0].volume, 0.28);
     assert.equal(created[0].paused, false);
 
+    setTitleSongVolumeLevel(0.5);
+    assert.equal(created[0].volume, 0.14);
+
     stopTitleSong({ reset: true });
     assert.equal(created[0].paused, true);
     assert.equal(created[0].currentTime, 0);
@@ -55,9 +59,11 @@ test('TitleSongManager creates one audio instance per source and controls playba
 
     assert.equal(created.length, 2);
     assert.equal(created[1].src, 'track-b.ogg');
+    assert.equal(created[1].volume, 0.14);
     assert.equal(created[1].currentTime, 0);
     assert.equal(created[1].paused, false);
   } finally {
+    setTitleSongVolumeLevel(1);
     stopTitleSong({ reset: true });
     if (originalAudio === undefined) {
       delete globalThis.Audio;
