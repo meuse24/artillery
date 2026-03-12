@@ -34,6 +34,12 @@ import { playTitleSong, stopTitleSong } from '../systems/TitleSongManager.js';
 import { InputController } from '../systems/InputController.js';
 import { VisualFxPool } from '../systems/VisualFxPool.js';
 import {
+  bumpCombatEnergy,
+  decayCombatEnergy,
+  getProjectileFlybyData,
+  resolveCombatAudioIntensity
+} from '../systems/combatAudioModel.js';
+import {
   getNextActivePlayerIndex,
   getNextWeaponIndex,
   shouldRailDrill,
@@ -118,6 +124,7 @@ export class GameScene extends Phaser.Scene {
     this.mobileFullscreenRequested = false;
     this.pointerInputBlockUntil = 0;
     this.battleMusicActive = false;
+    this.combatEnergy = 0;
   }
 
   blockPointerInput(durationMs = 160) {
@@ -228,6 +235,7 @@ export class GameScene extends Phaser.Scene {
 
   destroyArcadeSystems() {
     this.audioManager?.setDrive(false, 0);
+    this.audioManager?.setCombatIntensity(0);
     if (this.inputController) {
       this.inputController.destroy();
       this.inputController = null;
@@ -427,9 +435,11 @@ export class GameScene extends Phaser.Scene {
     if (this.audioEnabled) {
       this.audioManager?.unlock();
       this.audioManager?.setWind(this.wind ?? 0);
+      this.updateCombatSoundscape(0);
       this.syncTitleMusicState(this.overlayState);
     } else {
       this.audioManager?.setDrive(false, 0);
+      this.audioManager?.setCombatIntensity(0);
       stopTitleSong();
       stopBattleSong();
     }
@@ -663,6 +673,73 @@ export class GameScene extends Phaser.Scene {
     this.audioManager.setDrive(driving, intensity);
   }
 
+  bumpCombatEnergy(amount) {
+    this.combatEnergy = bumpCombatEnergy(this.combatEnergy, amount);
+  }
+
+  updateCombatSoundscape(dt) {
+    if (!this.audioManager) {
+      return;
+    }
+
+    this.combatEnergy = decayCombatEnergy(this.combatEnergy, dt);
+    const projectileStates = this.projectiles.map((projectile) => ({
+      speed: Math.hypot(projectile.vx, projectile.vy),
+      age: projectile.age
+    }));
+
+    const intensity = resolveCombatAudioIntensity({
+      soundEnabled: this.audioEnabled,
+      overlayActive: this.overlayActive(),
+      gameOver: this.gameOver,
+      combatEnergy: this.combatEnergy,
+      projectileStates,
+      resolving: this.resolving,
+      turnPhase: this.turnPhase,
+      wind: this.wind
+    });
+    this.audioManager.setCombatIntensity(intensity);
+  }
+
+  getAudioObserverPoint() {
+    const camera = this.cameras?.main;
+    return {
+      x: (camera?.scrollX ?? 0) + (camera?.width ?? GAME_WIDTH) * 0.5,
+      y: (camera?.scrollY ?? 0) + (camera?.height ?? GAME_HEIGHT) * 0.56
+    };
+  }
+
+  maybePlayProjectileFlyby(previousX, previousY, projectile) {
+    if (!this.audioEnabled || !this.audioManager || projectile.flybyPlayed) {
+      return;
+    }
+
+    const observer = this.getAudioObserverPoint();
+    const flyby = getProjectileFlybyData({
+      previousX,
+      previousY,
+      x: projectile.x,
+      y: projectile.y,
+      observerX: observer.x,
+      observerY: observer.y,
+      speed: Math.hypot(projectile.vx, projectile.vy),
+      age: projectile.age,
+      alreadyTriggered: projectile.flybyPlayed
+    });
+
+    if (!flyby.triggered) {
+      return;
+    }
+
+    projectile.flybyPlayed = true;
+    this.audioManager.playFlyby({
+      weaponId: projectile.weapon.id,
+      proximity: flyby.proximity,
+      pan: flyby.pan
+    });
+    this.bumpCombatEnergy(0.08 + flyby.proximity * 0.12);
+  }
+
   updateTankStability(dt) {
     if (!this.players || this.overlayActive() || !this.stabilityActive) {
       return;
@@ -868,8 +945,10 @@ export class GameScene extends Phaser.Scene {
     this.stabilityAccumulator = 0;
     this.clearOverlay();
     this.stabilityActive = true;
+    this.combatEnergy = 0;
     this.resetCameraFocus(1);
     this.audioManager.setWind(this.wind);
+    this.audioManager.setCombatIntensity(0);
     this.arcadeEvents?.emit(ARCADE_EVENTS.ROUND_STARTED, {
       mode: this.currentMode,
       weather: this.weather.getLabel(),
@@ -1242,6 +1321,7 @@ export class GameScene extends Phaser.Scene {
     const dt = Math.min(delta / 1000, 0.032);
     if (this.hitStopTimer > 0) {
       this.hitStopTimer = Math.max(0, this.hitStopTimer - dt);
+      this.updateCombatSoundscape(dt);
       this.audioManager.setDrive(false, 0);
       return;
     }
@@ -1252,6 +1332,7 @@ export class GameScene extends Phaser.Scene {
       this.ambientAccumulator -= this.ambientStep;
     }
     this.weather.update(dt, this.wind);
+    this.updateCombatSoundscape(dt);
 
     if (this.overlayActive()) {
       this.handleOverlayInput();
@@ -1592,6 +1673,7 @@ export class GameScene extends Phaser.Scene {
       weather: this.weather.getLabel()
     });
     this.audioManager.playShot(weapon);
+    this.bumpCombatEnergy(0.28 + Phaser.Math.Clamp(weapon.blastRadius / 90, 0.12, 0.44));
     this.playWeaponMuzzle(origin.x, origin.y, weapon);
     this.spawnProjectile({
       x: origin.x,
@@ -1631,7 +1713,8 @@ export class GameScene extends Phaser.Scene {
       trail,
       trailPoints: [],
       bouncesLeft: config.weapon.maxBounces ?? 0,
-      drilledTerrain: false
+      drilledTerrain: false,
+      flybyPlayed: false
     });
   }
 
@@ -1742,6 +1825,7 @@ export class GameScene extends Phaser.Scene {
       y
     });
     this.audioManager.playBounce(weapon);
+    this.bumpCombatEnergy(0.08);
   }
 
   playWeaponMuzzle(x, y, weapon) {
@@ -1854,6 +1938,7 @@ export class GameScene extends Phaser.Scene {
 
       const collision = this.traceProjectile(previousX, previousY, projectile.x, projectile.y, projectile);
       this.syncProjectileDisplay(projectile);
+      this.maybePlayProjectileFlyby(previousX, previousY, projectile);
 
       if (collision) {
         if (shouldRailDrill(projectile.weapon, collision, projectile.drilledTerrain)) {
@@ -1994,6 +2079,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     this.particles.explode(16, projectile.x, projectile.y);
+    this.bumpCombatEnergy(0.14);
     this.destroyProjectile(projectile);
     this.projectiles.splice(index, 1);
   }
@@ -2074,6 +2160,7 @@ export class GameScene extends Phaser.Scene {
 
     this.focusCameraOn(x, y, 220, 1.07);
     this.audioManager.playExplosion(weapon);
+    this.bumpCombatEnergy(0.34 + Phaser.Math.Clamp(weapon.blastRadius / 72, 0.16, 0.58));
     const motionScale = this.getMotionScale();
     if (motionScale > 0) {
       this.cameras.main.shake(

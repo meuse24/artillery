@@ -731,8 +731,6 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
-    const y = this.overlayPrompt.y + (this.compactLayout ? 24 : 26);
-
     if (overlay.type === 'gameover') {
       return;
     }

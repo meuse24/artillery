@@ -44,3 +44,14 @@ Original prompt: verwende den skill develop-web-game und prüfe das game.
 - 2026-03-10: Layout-Modell nachgeschaerft: kleine Viewports bekommen jetzt bewusst groessere interne Schrift und groessere CTA-/Mode-/Action-Flaechen statt verkleinerter Typografie.
 - 2026-03-10: Vertikale Ausnutzung fuer Boot- und Startscreen weiter erhoeht: geringere Innenraender, hoehere Panels und aggressiver gefuellte Section-Hoehen/Gaps.
 - 2026-03-10: Zweite Verifikation erfolgreich: `npm test`, `npm run lint`, `npm run build`, `npm run test:live`; zusaetzlich Small-Landscape-Screenshots (`640x360`, Touch/Mobile) fuer Boot und Startscreen visuell geprueft.
+- 2026-03-11: Combat-Audio weiter ausgebaut: neuer reiner `combatAudioModel` fuer Kampfenergie, dynamische Gefechtsintensitaet und Flyby-Erkennung von schnellen Projektilen.
+- 2026-03-11: `AudioManager` um eine persistente Combat-Bed-Schicht (Rumpeln, Druck, Hochmitten-Praesenz) sowie panning-faehige Projektil-Flybys/Zischgeraeusche erweitert.
+- 2026-03-11: `GameScene` koppelt Kampfenergie jetzt an Schuss, Flug, Bounce, Split und Explosion; der Combat-Mix klingt dadurch zwischen den Einzelereignissen dichter und Projektil-Vorbeifluege werden hoerbar getriggert.
+- 2026-03-11: Musiktests an die bereits abgesenkten Song-Lautstaerken angepasst (`BattleSongManager` 0.06, `TitleSongManager` 0.18); bestehenden `no-unused-vars` in `UIScene` entfernt, damit `lint` wieder gruen laeuft.
+- 2026-03-11: Verifikation erfolgreich: `npm test` (55 Tests), `npm run lint`, `npm run build`, `npm run test:live`; Start- und Gameplay-Screenshots aus `output/live-smoke/**` visuell geprueft, Gameplay lief bis Turn 3 mit ausgetragenem Schaden durch.
+- 2026-03-11: Waffen-SFX nochmals deutlich angehoben: globale One-Shot-SFX-Boosts in `AudioManager`, zusaetzliche gemeinsame Punch-Layer fuer `playShot`/`playExplosion` und lautere Flybys.
+- 2026-03-11: Musik weiter zurueckgenommen, damit Waffen den Mix dominieren (`BattleSongManager` 0.04, `TitleSongManager` 0.14); Tests entsprechend aktualisiert.
+- 2026-03-11: Zweite Verifikation erfolgreich: `npm test`, `npm run lint`, `npm run build`, `npm run test:live`.
+- 2026-03-12: Cinematic-Overkill-Pass auf Audio: zusaetzliche Echo-/Aftershock-Layer fuer Schuss und Explosion, staerkerer Ketten-/Drive-Mix; Musik wieder etwas praesent (Battle 0.06, Title 0.18).
+- 2026-03-12: Sound-Off-Pfad nachgeschaerft: Bootscreen-UI-Pings respektieren `Sound: OFF`, stoppen jetzt auch Battle-/Title-Music sauber und suspendieren den UI-Audio-Kontext; `AudioManager.setMuted()` zieht zusaetzlich den Master-Gain runter, damit laufende One-Shots beim Mute wirklich verstummen.
+- 2026-03-12: Verifikation fuer den Sound-Off-Fix erfolgreich: `npm test`, `npm run lint`, `npm run build`.

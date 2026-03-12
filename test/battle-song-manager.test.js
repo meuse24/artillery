@@ -43,7 +43,7 @@ test('BattleSongManager creates one low-volume looping background track', () => 
     assert.equal(created[0].src, 'battle-a.ogg');
     assert.equal(created[0].loop, true);
     assert.equal(created[0].preload, 'auto');
-    assert.equal(created[0].volume, 0.12);
+    assert.equal(created[0].volume, 0.06);
     assert.equal(created[0].paused, false);
 
     stopBattleSong({ reset: true });

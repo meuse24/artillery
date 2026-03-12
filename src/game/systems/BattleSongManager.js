@@ -9,7 +9,7 @@ function ensureBattleSong() {
     battleSong = new Audio(sourceUrl);
     battleSong.loop = true;
     battleSong.preload = 'auto';
-    battleSong.volume = 0.12;
+    battleSong.volume = 0.06;
   }
   return battleSong;
 }

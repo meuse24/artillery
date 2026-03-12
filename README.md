@@ -164,14 +164,17 @@ Wind ist bewusst mehrfach visualisiert, damit er im Spielfluss sofort lesbar ist
 Das Spiel verwendet ein kleines generiertes Web-Audio-System statt externer Sounddateien:
 
 - dezentes Windbett auf Basis von gefiltertem Rauschen
-- Waffen-Schuesse (je Waffe eigenes Profil)
-- Bouncer-Aufprall-Sound
-- Explosionen
+- Diesel-/Kettenbett fuer fahrende Tanks mit mehr mechanischem Rattern
+- dynamische Combat-Bed, die zwischen Schuss, Flug und Einschlag Druck aufbaut
+- Waffen-Schuesse (je Waffe eigenes Profil) plus gemeinsamer Punch-Layer
+- Projektil-Flybys/Zischgeraeusche fuer schnelle Geschosse
+- Bouncer-/Hopper-Aufprall-Sounds
+- Explosionen mit Nachdruck, Debris und filmischen Echo-Tails
 - Trefferfeedback
-- Titelsong (als externe OGG-Datei, dezent abgemischt)
+- Titelsong (als externe OGG-Datei, bewusst praesent aber unter dem Action-Mix)
 - Battle-Loop `main.ogg` waehrend des eigentlichen Matches bis `Game Over`, inklusive Spielerwechsel-Dialogen
 
-Die Lautstaerke ist auf ein ausgewogenes Verhaeltnis zwischen leisem Hintergrund-Loop und deutlich hoerbaren Bewegungs-, Schuss- und Treffer-Sounds optimiert.
+Der Mix ist bewusst arcadig-cinematisch: Waffen duerfen knallen, aber Musik und Kettenlauf bleiben als wahrnehmbare Schicht im Bild, statt komplett von den SFX erschlagen zu werden.
 
 Wichtiger Browser-Hinweis:
 
@@ -243,6 +246,7 @@ Test-Workflow:
 - opakere, waffenabhaengige Debris-/Fels-Chips beim Einschlag statt generischer halbtransparenter Partikel
 - kurzer Hit-Stop bei starken Treffern fuer mehr Impact
 - Kamera-Fokus bei Schuss und Einschlag
+- cinematic Combat-Mix mit Projektil-Flybys, Echo-Tails und staerkerem Ketten-/Motorbett
 - responsive HUD-Anpassungen fuer kleinere Viewports + Landscape-Guard auf Touch-Geraeten
 - prominente Waffenwahl und Phasenanzeige unterhalb des HUD-Rahmens statt im HUD-Frame
 - Objective-Zeile blendet bei neuen Turn-/Feed-Infos kurz ein und nach 3 Sekunden wieder aus
@@ -297,6 +301,8 @@ Test-Workflow:
 - `src/game/systems/TelemetrySystem.js`
   - sammelt Match-Metriken aus Arcade-Events
   - speichert Rolling-History lokal in `localStorage` und liefert Tuning-Summary
+- `src/game/systems/combatAudioModel.js`
+  - pure Helper fuer Kampfenergie, Combat-Intensitaet und Flyby-Erkennung
 - `src/game/systems/Terrain.js`
   - Terrain-Generierung mit vier Presets, Pixelkollision, unregelmaessige Krater-Deformation, Impact-Decals, Bodenschicht-Gradient, Oberflaechenberechnung
 - `src/game/systems/WeatherSystem.js`
@@ -306,9 +312,9 @@ Test-Workflow:
 - `src/game/weapons.js`
   - Waffenprofile fuer Mechanik, Munitionslimits und VFX/SFX-Identity
 - `src/game/systems/AudioManager.js`
-  - Web-Audio-Synthese, dezente Wind-Ambience, Bouncer-Sound und Audio-Unlock nach User-Geste
+  - Web-Audio-Synthese fuer Wind, Drive/Ketten, Combat-Bed, Waffen, Flybys und filmische Echo-/Impact-Layer
 - `src/game/systems/BattleSongManager.js`
-  - verwaltet den leisen Battle-Loop als externes OGG-Audioelement
+  - verwaltet den Battle-Loop als externes OGG-Audioelement
 - `src/game/systems/ScoreStore.js`
   - persistente Highscores in `localStorage`
 - `src/game/systems/InputController.js`
@@ -327,7 +333,7 @@ Test-Workflow:
 ## Testen
 
 - `test/**/*.test.js`
-  - Unit-Tests fuer Waffen, Persistence, Event-Bus, Mutatoren, Telemetrie, Wetter, Terrain, Waffenwahl, Spielerwechsel, Overlay-/Boot-Modelle, Audio-Music-State und UI-Helfer
+  - Unit-Tests fuer Waffen, Persistence, Event-Bus, Mutatoren, Telemetrie, Wetter, Terrain, Waffenwahl, Spielerwechsel, Overlay-/Boot-Modelle, Combat-Audio-Modell, Audio-Music-State und UI-Helfer
 - `tools/live-smoke-test.js`
   - startet den Produktions-Build lokal und prueft Bootscreen, Start-Overlay und Gameplay/Turn-Handoff im Browser
 - `output/live-smoke/`

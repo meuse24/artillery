@@ -9,7 +9,7 @@ function ensureTitleSong() {
     titleSong = new Audio(sourceUrl);
     titleSong.loop = true;
     titleSong.preload = 'auto';
-    titleSong.volume = 0.35;
+    titleSong.volume = 0.18;
   }
   return titleSong;
 }
@@ -68,4 +68,3 @@ export function stopTitleSong({ reset = false } = {}) {
     }
   }
 }
-

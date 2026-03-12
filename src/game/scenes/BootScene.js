@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import titleSongUrl from '../../../cratercommand.ogg?url';
 import { GAME_HEIGHT, GAME_WIDTH } from '../constants.js';
 import { SCENE_KEYS } from '../config/sceneContracts.js';
+import { stopBattleSong } from '../systems/BattleSongManager.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
 import { playTitleSong, setTitleSongSource, stopTitleSong } from '../systems/TitleSongManager.js';
 import {
@@ -409,17 +410,25 @@ export class BootScene extends Phaser.Scene {
 
     this.startPreferences = nextPreferences;
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
-    this.playUiPing({
-      frequency: key === 'sound' ? 560 : 430,
-      duration: 0.045,
-      gain: 0.013
-    });
     if (key === 'sound') {
       if (this.startPreferences.sound) {
         playTitleSong();
+        this.playUiPing({
+          frequency: 560,
+          duration: 0.045,
+          gain: 0.013
+        });
       } else {
         stopTitleSong();
+        stopBattleSong();
+        this.silenceUiAudioContext();
       }
+    } else {
+      this.playUiPing({
+        frequency: 430,
+        duration: 0.045,
+        gain: 0.013
+      });
     }
     this.updatePreferenceLabels();
   }
@@ -531,6 +540,8 @@ export class BootScene extends Phaser.Scene {
         playTitleSong();
       } else {
         stopTitleSong();
+        stopBattleSong();
+        this.silenceUiAudioContext();
       }
 
       if (
@@ -604,6 +615,10 @@ export class BootScene extends Phaser.Scene {
   }
 
   playUiPing({ frequency = 500, duration = 0.05, gain = 0.012 } = {}) {
+    if (!this.startPreferences?.sound) {
+      this.silenceUiAudioContext();
+      return;
+    }
     const context = this.ensureUiAudioContext();
     if (!context) {
       return;
@@ -625,5 +640,14 @@ export class BootScene extends Phaser.Scene {
     amp.connect(context.destination);
     osc.start(startAt);
     osc.stop(startAt + duration + 0.02);
+  }
+
+  silenceUiAudioContext() {
+    if (!this.uiAudioContext || this.uiAudioContext.state === 'closed') {
+      return;
+    }
+    if (this.uiAudioContext.state === 'running') {
+      this.uiAudioContext.suspend().catch(() => {});
+    }
   }
 }

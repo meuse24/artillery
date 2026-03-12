@@ -43,7 +43,7 @@ test('TitleSongManager creates one audio instance per source and controls playba
     assert.equal(created[0].src, 'track-a.ogg');
     assert.equal(created[0].loop, true);
     assert.equal(created[0].preload, 'auto');
-    assert.equal(created[0].volume, 0.35);
+    assert.equal(created[0].volume, 0.18);
     assert.equal(created[0].paused, false);
 
     stopTitleSong({ reset: true });
