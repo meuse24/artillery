@@ -43,6 +43,26 @@ export function getBootPreferenceViewModel(preferences) {
   };
 }
 
+export function shouldPlayBootUiPing(preferences) {
+  return Boolean(preferences?.sound);
+}
+
+export function getBootUiPingConfig(kind = 'default') {
+  switch (kind) {
+    case 'sound-on':
+      return { frequency: 560, duration: 0.04, gain: 0.006, type: 'triangle' };
+    case 'fullscreen-toggle':
+      return { frequency: 430, duration: 0.04, gain: 0.006, type: 'triangle' };
+    case 'blocked-start':
+      return { frequency: 250, duration: 0.045, gain: 0.005, type: 'triangle' };
+    case 'start':
+      return { frequency: 400, duration: 0.025, gain: 0.0007, type: 'sine' };
+    case 'default':
+    default:
+      return { frequency: 500, duration: 0.04, gain: 0.006, type: 'triangle' };
+  }
+}
+
 export function isBootGameSceneReady(gameScene) {
   return Boolean(
     gameScene &&

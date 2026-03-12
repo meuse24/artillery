@@ -6,9 +6,11 @@ import { stopBattleSong } from '../systems/BattleSongManager.js';
 import { loadLaunchPreferences, saveLaunchPreferences } from '../systems/LaunchPreferencesStore.js';
 import { playTitleSong, setTitleSongSource, stopTitleSong } from '../systems/TitleSongManager.js';
 import {
+  getBootUiPingConfig,
   getBootOrientationState,
   getBootPreferenceViewModel,
   isBootGameSceneReady,
+  shouldPlayBootUiPing,
   toggleBootPreference
 } from './bootSceneModel.js';
 import {
@@ -413,22 +415,14 @@ export class BootScene extends Phaser.Scene {
     if (key === 'sound') {
       if (this.startPreferences.sound) {
         playTitleSong();
-        this.playUiPing({
-          frequency: 560,
-          duration: 0.045,
-          gain: 0.013
-        });
+        this.playUiPing(getBootUiPingConfig('sound-on'));
       } else {
         stopTitleSong();
         stopBattleSong();
         this.silenceUiAudioContext();
       }
     } else {
-      this.playUiPing({
-        frequency: 430,
-        duration: 0.045,
-        gain: 0.013
-      });
+      this.playUiPing(getBootUiPingConfig('fullscreen-toggle'));
     }
     this.updatePreferenceLabels();
   }
@@ -525,13 +519,13 @@ export class BootScene extends Phaser.Scene {
   startFromBoot() {
     this.updateLaunchAvailability();
     if (this.bootOrientationState?.startBlocked) {
-      this.playUiPing({ frequency: 250, duration: 0.05, gain: 0.01 });
+      this.playUiPing(getBootUiPingConfig('blocked-start'));
       this.pulseOrientationHint();
       return;
     }
 
     this.startPreferences = saveLaunchPreferences(this.startPreferences);
-    this.playUiPing({ frequency: 690, duration: 0.07, gain: 0.014 });
+    this.playUiPing(getBootUiPingConfig('start'));
 
     // Transition effect: Fade out all BootScene elements
     this.cameras.main.fadeOut(400, 5, 9, 15);
@@ -614,8 +608,8 @@ export class BootScene extends Phaser.Scene {
     return this.uiAudioContext;
   }
 
-  playUiPing({ frequency = 500, duration = 0.05, gain = 0.012 } = {}) {
-    if (!this.startPreferences?.sound) {
+  playUiPing({ frequency = 500, duration = 0.05, gain = 0.012, type = 'triangle' } = {}) {
+    if (!shouldPlayBootUiPing(this.startPreferences)) {
       this.silenceUiAudioContext();
       return;
     }
@@ -630,7 +624,7 @@ export class BootScene extends Phaser.Scene {
     const osc = context.createOscillator();
     const amp = context.createGain();
 
-    osc.type = 'triangle';
+    osc.type = type;
     osc.frequency.setValueAtTime(frequency, startAt);
     amp.gain.setValueAtTime(0.0001, startAt);
     amp.gain.exponentialRampToValueAtTime(gain, startAt + 0.008);

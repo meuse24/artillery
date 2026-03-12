@@ -2,9 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getBootUiPingConfig,
   getBootOrientationState,
   getBootPreferenceViewModel,
   isBootGameSceneReady,
+  shouldPlayBootUiPing,
   toggleBootPreference
 } from '../src/game/scenes/bootSceneModel.js';
 
@@ -32,6 +34,29 @@ test('boot scene model derives the correct UI labels and styles', () => {
       soundTextColor: '#acaba1'
     }
   );
+});
+
+test('boot scene model exposes the quieter start ping and blocks UI pings when sound is off', () => {
+  assert.deepEqual(getBootUiPingConfig('sound-on'), {
+    frequency: 560,
+    duration: 0.04,
+    gain: 0.006,
+    type: 'triangle'
+  });
+  assert.deepEqual(getBootUiPingConfig('start'), {
+    frequency: 400,
+    duration: 0.025,
+    gain: 0.0007,
+    type: 'sine'
+  });
+  assert.deepEqual(getBootUiPingConfig('blocked-start'), {
+    frequency: 250,
+    duration: 0.045,
+    gain: 0.005,
+    type: 'triangle'
+  });
+  assert.equal(shouldPlayBootUiPing({ sound: true }), true);
+  assert.equal(shouldPlayBootUiPing({ sound: false }), false);
 });
 
 test('boot scene model blocks game start on phone-like touch devices in portrait only', () => {

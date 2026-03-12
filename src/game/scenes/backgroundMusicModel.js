@@ -11,9 +11,10 @@ export function resolveBackgroundMusicState({
 
   const titleOverlay =
     overlayType === 'start' ||
+    overlayType === 'demo' ||
     overlayType === 'gameover' ||
     (overlayType === 'help' &&
-      (previousOverlayType === 'start' || previousOverlayType === 'gameover'));
+      (previousOverlayType === 'start' || previousOverlayType === 'demo' || previousOverlayType === 'gameover'));
 
   if (titleOverlay) {
     return { title: true, battle: false };

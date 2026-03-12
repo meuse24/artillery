@@ -39,6 +39,11 @@ function createScene(overrides = {}) {
     syncHud() {
       scene.hudSyncCount = (scene.hudSyncCount ?? 0) + 1;
     },
+    advanceTurnOverlay() {
+      scene.turnOverlayAdvanced = true;
+      scene.overlayState = null;
+      scene.hudSyncCount = (scene.hudSyncCount ?? 0) + 1;
+    },
     startCpuTurn() {
       scene.cpuTurnStarted = true;
     },
@@ -68,6 +73,18 @@ test('OverlayStateSystem builds the demo/start screen overlay', () => {
   assert.equal(scene.lastSyncedOverlay, scene.overlayState);
 });
 
+test('OverlayStateSystem treats demo overlays as non-blocking and emits them normally', () => {
+  const { scene, emitted } = createScene();
+  const overlay = new OverlayStateSystem(scene);
+
+  overlay.showDemoOverlay();
+
+  assert.equal(scene.overlayState.type, 'demo');
+  assert.equal(overlay.overlayActive(), false);
+  assert.equal(emitted[0].eventName, GAME_SCENE_EVENTS.OVERLAY_UPDATE);
+  assert.equal(scene.lastSyncedOverlay, scene.overlayState);
+});
+
 test('OverlayStateSystem schedules CPU player handoff on turn overlays', () => {
   const { scene, delayedCalls } = createScene({
     isCpuControlledPlayer() {
@@ -79,7 +96,9 @@ test('OverlayStateSystem schedules CPU player handoff on turn overlays', () => {
   overlay.presentTurnOverlay();
 
   assert.equal(scene.overlayState.type, 'turn');
+  assert.equal(scene.overlayState.body, '');
   assert.equal(scene.overlayState.prompt, 'CPU thinking...');
+  assert.equal(scene.overlayState.countdownLabel, '');
   assert.equal(scene.lastTurnBanner, 'Amber move phase');
   assert.equal(scene.turnSoundPlayed, true);
   assert.equal(delayedCalls[0].delay, 900);
@@ -89,4 +108,33 @@ test('OverlayStateSystem schedules CPU player handoff on turn overlays', () => {
   assert.equal(scene.overlayState, null);
   assert.equal(scene.cpuTurnStarted, true);
   assert.equal(scene.hudSyncCount, 2);
+});
+
+test('OverlayStateSystem counts down human turn overlays and auto-advances after 3 seconds', () => {
+  const { scene, delayedCalls } = createScene();
+  const overlay = new OverlayStateSystem(scene);
+
+  overlay.presentTurnOverlay();
+
+  assert.equal(scene.overlayState.type, 'turn');
+  assert.equal(scene.overlayState.body, '');
+  assert.equal(scene.overlayState.countdownSecondsRemaining, 3);
+  assert.equal(scene.overlayState.countdownLabel, 'Auto continue in 3');
+  assert.equal(scene.overlayState.prompt, 'TAP / CLICK ANYWHERE');
+  assert.equal(delayedCalls.length, 3);
+  assert.deepEqual(delayedCalls.map(({ delay }) => delay), [1000, 2000, 3000]);
+
+  delayedCalls[0].callback();
+  assert.equal(scene.overlayState.countdownSecondsRemaining, 2);
+  assert.equal(scene.overlayState.countdownLabel, 'Auto continue in 2');
+  assert.equal(scene.overlayState.prompt, 'TAP / CLICK ANYWHERE');
+
+  delayedCalls[1].callback();
+  assert.equal(scene.overlayState.countdownSecondsRemaining, 1);
+  assert.equal(scene.overlayState.countdownLabel, 'Auto continue in 1');
+  assert.equal(scene.overlayState.prompt, 'TAP / CLICK ANYWHERE');
+
+  delayedCalls[2].callback();
+  assert.equal(scene.turnOverlayAdvanced, true);
+  assert.equal(scene.overlayState, null);
 });

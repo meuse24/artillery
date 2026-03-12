@@ -39,11 +39,11 @@ canvas {
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 4px 2px 8px;
+  padding: 6px 4px 12px;
   color: #f7f3e6;
   font-family: "Trebuchet MS", "Verdana", sans-serif;
-  font-size: 16px;
-  line-height: 1.45;
+  font-size: 18px;
+  line-height: 1.55;
   touch-action: pan-y;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -51,12 +51,13 @@ canvas {
 
 .help-html-block {
   white-space: normal;
-  margin: 0 0 16px;
+  margin: 0 0 18px;
 }
 
 .help-html-controls-title {
-  margin: 2px 0 8px;
+  margin: 4px 0 10px;
   color: #94f3ec;
+  font-size: 18px;
   font-weight: 700;
   letter-spacing: 0.03em;
 }
@@ -64,15 +65,15 @@ canvas {
 .help-controls-table {
   width: 100%;
   border-collapse: collapse;
-  margin: 0 0 16px;
-  font-size: 15px;
+  margin: 0 0 18px;
+  font-size: 17px;
   color: #e8f7f3;
 }
 
 .help-controls-table th,
 .help-controls-table td {
   border: 1px solid rgba(255, 255, 255, 0.18);
-  padding: 8px 10px;
+  padding: 10px 12px;
   text-align: left;
   vertical-align: top;
 }

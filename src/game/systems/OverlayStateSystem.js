@@ -7,22 +7,92 @@ export class OverlayStateSystem {
   constructor(scene, { objectiveText = DEFAULT_OBJECTIVE_TEXT } = {}) {
     this.scene = scene;
     this.objectiveText = objectiveText;
+    this.turnOverlayCountdownEvents = [];
   }
 
   overlayActive() {
-    return Boolean(this.scene.overlayState);
+    return Boolean(this.scene.overlayState && this.scene.overlayState.type !== 'demo');
   }
 
   showOverlay(payload) {
+    if (payload?.type !== 'turn') {
+      this.clearTurnOverlayCountdown();
+    }
     this.scene.overlayState = payload;
     this.scene.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, payload);
     this.scene.syncTitleMusicState?.(payload);
+    if (
+      payload?.type === 'turn' &&
+      !this.scene.isCpuControlledPlayer() &&
+      typeof payload.countdownSecondsRemaining === 'number'
+    ) {
+      this.startHumanTurnOverlayCountdown(payload.countdownSecondsRemaining);
+    }
   }
 
   clearOverlay() {
+    this.clearTurnOverlayCountdown();
     this.scene.overlayState = null;
     this.scene.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, null);
     this.scene.syncTitleMusicState?.(null);
+  }
+
+  updateCurrentOverlay(patch) {
+    if (!this.scene.overlayState) {
+      return;
+    }
+    this.scene.overlayState = {
+      ...this.scene.overlayState,
+      ...patch
+    };
+    this.scene.events.emit(GAME_SCENE_EVENTS.OVERLAY_UPDATE, this.scene.overlayState);
+    this.scene.syncTitleMusicState?.(this.scene.overlayState);
+  }
+
+  buildTurnPrompt({ isCpuTurn }) {
+    if (isCpuTurn) {
+      return 'CPU thinking...';
+    }
+    return 'TAP / CLICK ANYWHERE';
+  }
+
+  buildTurnCountdownLabel(secondsRemaining) {
+    if (typeof secondsRemaining !== 'number' || secondsRemaining <= 0) {
+      return '';
+    }
+    return `Auto continue in ${secondsRemaining}`;
+  }
+
+  clearTurnOverlayCountdown() {
+    this.turnOverlayCountdownEvents.forEach((event) => event?.remove?.(false));
+    this.turnOverlayCountdownEvents = [];
+  }
+
+  startHumanTurnOverlayCountdown(secondsRemaining = 3) {
+    this.clearTurnOverlayCountdown();
+    const normalizedSeconds = Math.max(1, Math.ceil(secondsRemaining));
+    for (let second = normalizedSeconds - 1; second >= 1; second -= 1) {
+      const delay = (normalizedSeconds - second) * 1000;
+      const event = this.scene.time.delayedCall(delay, () => {
+        if (this.scene.overlayState?.type !== 'turn' || this.scene.isCpuControlledPlayer()) {
+          return;
+        }
+        this.updateCurrentOverlay({
+          countdownSecondsRemaining: second,
+          countdownLabel: this.buildTurnCountdownLabel(second),
+          prompt: this.buildTurnPrompt({ isCpuTurn: false })
+        });
+      });
+      this.turnOverlayCountdownEvents.push(event);
+    }
+
+    const autoAdvanceEvent = this.scene.time.delayedCall(normalizedSeconds * 1000, () => {
+      if (this.scene.overlayState?.type !== 'turn' || this.scene.isCpuControlledPlayer()) {
+        return;
+      }
+      this.scene.advanceTurnOverlay?.();
+    });
+    this.turnOverlayCountdownEvents.push(autoAdvanceEvent);
   }
 
   showStartOverlay() {
@@ -46,28 +116,37 @@ export class OverlayStateSystem {
     });
   }
 
+  showDemoOverlay({ slogan = '' } = {}) {
+    this.showOverlay({
+      type: 'demo',
+      title: '',
+      body: '',
+      scoreboard: '',
+      prompt: '',
+      slogan
+    });
+  }
+
   presentTurnOverlay() {
     const player = this.scene.getActivePlayer();
-    const mutatorLabel = this.scene.mutatorSystem?.getHudLabel();
+    const isCpuTurn = this.scene.isCpuControlledPlayer();
     this.scene.showTurnBanner(`${player.name} move phase`);
     this.scene.audioManager.playTurn();
+    const countdownSecondsRemaining = isCpuTurn
+      ? null
+      : Math.max(1, Math.ceil(this.scene.overlayState?.countdownSecondsRemaining ?? 3));
     this.showOverlay({
       type: 'turn',
       title: `PLAYER ${player.name.toUpperCase()} READY?`,
-      body: [
-        this.scene.isCpuControlledPlayer() ? 'CPU turn active' : 'Hand-off: next player',
-        'Phase 1  Move',
-        'Phase 2  Aim + Fire',
-        mutatorLabel ? `Mutator  ${mutatorLabel}` : 'Mutator  none'
-      ].join('\n'),
+      body: '',
       scoreboard: this.buildScoreboardText(),
-      prompt: this.scene.isCpuControlledPlayer()
-        ? 'CPU thinking...'
-        : 'PRESS BUTTON WHEN READY'
+      countdownSecondsRemaining,
+      countdownLabel: isCpuTurn ? '' : this.buildTurnCountdownLabel(countdownSecondsRemaining),
+      prompt: this.buildTurnPrompt({ isCpuTurn })
     });
     this.scene.syncHud();
 
-    if (this.scene.isCpuControlledPlayer()) {
+    if (isCpuTurn) {
       this.scene.time.delayedCall(900, () => {
         if (this.scene.overlayState?.type === 'turn' && this.scene.isCpuControlledPlayer()) {
           this.clearOverlay();

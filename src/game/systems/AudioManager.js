@@ -288,6 +288,7 @@ export class AudioManager {
 
     this.createNoiseBuffer();
     const t = this.context.currentTime;
+    const dest = this.out();
 
     // ── Main engine rumble noise ────────────────────────────────────
     this.driveSource = this.context.createBufferSource();
@@ -332,7 +333,7 @@ export class AudioManager {
     this.driveBandpass.connect(this.driveLowpass);
     this.driveLowpass.connect(this.driveDistortion);
     this.driveDistortion.connect(this.driveGain);
-    this.driveGain.connect(this.context.destination);
+    this.driveGain.connect(dest);
 
     this.driveTone.connect(this.driveToneGain);
     this.driveToneGain.connect(this.driveDistortion);
@@ -363,7 +364,7 @@ export class AudioManager {
 
     this.driveClatterSource.connect(this.driveClatterBandpass);
     this.driveClatterBandpass.connect(this.driveClatterGain);
-    this.driveClatterGain.connect(this.context.destination);
+    this.driveClatterGain.connect(dest);
 
     this.driveClatterPulse.connect(this.driveClatterPulseGain);
     this.driveClatterPulseGain.connect(this.driveClatterGain.gain);
@@ -377,7 +378,7 @@ export class AudioManager {
     this.driveRumbleGain.gain.setValueAtTime(0.0001, t);
 
     this.driveRumbleTone.connect(this.driveRumbleGain);
-    this.driveRumbleGain.connect(this.context.destination);
+    this.driveRumbleGain.connect(dest);
 
     // ── Mechanical rattle – high-mid metallic resonance ─────────────
     this.driveRattle = this.context.createOscillator();
@@ -441,9 +442,9 @@ export class AudioManager {
     this.drivePulse.frequency.linearRampToValueAtTime(pulseFreq, now + ramp);
 
     // Track clatter – rapid metallic clicking
-    const targetClatter = active ? 0.004 + amount * 0.0085 : 0.0001;
-    const clatterBand = active ? 1650 + amount * 2100 : 1200;
-    const clatterPulseFreq = active ? 14 + amount * 26 : 8;
+    const targetClatter = active ? 0.0068 + amount * 0.0135 : 0.0001;
+    const clatterBand = active ? 1850 + amount * 2350 : 1250;
+    const clatterPulseFreq = active ? 16 + amount * 30 : 8;
     this.driveClatterGain.gain.cancelScheduledValues(now);
     this.driveClatterGain.gain.linearRampToValueAtTime(targetClatter, now + ramp);
     this.driveClatterBandpass.frequency.cancelScheduledValues(now);
@@ -452,7 +453,7 @@ export class AudioManager {
     this.driveClatterPulse.frequency.linearRampToValueAtTime(clatterPulseFreq, now + ramp);
     this.driveClatterPulseGain.gain.cancelScheduledValues(now);
     this.driveClatterPulseGain.gain.linearRampToValueAtTime(
-      active ? 0.0026 + amount * 0.0055 : 0.0005, now + ramp
+      active ? 0.0044 + amount * 0.0072 : 0.0005, now + ramp
     );
 
     // Sub-bass ground rumble
@@ -464,12 +465,44 @@ export class AudioManager {
     this.driveRumbleTone.frequency.linearRampToValueAtTime(rumbleFreq, now + ramp);
 
     // Mechanical rattle
-    const targetRattle = active ? 0.001 + amount * 0.0022 : 0.0001;
-    const rattleFreq = active ? 55 + amount * 40 : 50;
+    const targetRattle = active ? 0.0018 + amount * 0.0034 : 0.0001;
+    const rattleFreq = active ? 62 + amount * 56 : 50;
     this.driveRattleGain.gain.cancelScheduledValues(now);
     this.driveRattleGain.gain.linearRampToValueAtTime(targetRattle, now + ramp);
     this.driveRattle.frequency.cancelScheduledValues(now);
     this.driveRattle.frequency.linearRampToValueAtTime(rattleFreq, now + ramp);
+  }
+
+  playTrackClank(intensity = 1) {
+    if (!this.context || !this.unlocked || this.context.state !== 'running' || this.muted) {
+      return;
+    }
+
+    const amount = Math.max(0, Math.min(1, intensity));
+    const metallicFreq = 820 + amount * 420;
+    this.noiseBurst({
+      duration: 0.03 + amount * 0.015,
+      gain: 0.008 + amount * 0.008,
+      highpass: 1100,
+      lowpass: 5200,
+      boost: 1.1
+    });
+    this.resonantBody({
+      frequencies: [metallicFreq, metallicFreq * 1.52],
+      Q: 18,
+      duration: 0.045 + amount * 0.025,
+      gain: 0.012 + amount * 0.01,
+      boost: 1.05
+    });
+    this.distortedTone({
+      frequency: 112 + amount * 28,
+      freqEnd: 72,
+      duration: 0.05,
+      type: 'square',
+      gain: 0.008 + amount * 0.006,
+      drive: 9,
+      boost: 0.9
+    });
   }
 
   setWind(amount) {

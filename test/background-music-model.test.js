@@ -18,6 +18,16 @@ test('background music model prefers title music on start and game over overlays
     resolveBackgroundMusicState({
       soundEnabled: true,
       battleActive: false,
+      gameOver: false,
+      overlayType: 'demo'
+    }),
+    { title: true, battle: false }
+  );
+
+  assert.deepEqual(
+    resolveBackgroundMusicState({
+      soundEnabled: true,
+      battleActive: false,
       gameOver: true,
       overlayType: 'gameover'
     }),

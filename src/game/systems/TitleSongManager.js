@@ -9,7 +9,7 @@ function ensureTitleSong() {
     titleSong = new Audio(sourceUrl);
     titleSong.loop = true;
     titleSong.preload = 'auto';
-    titleSong.volume = 0.18;
+    titleSong.volume = 0.28;
   }
   return titleSong;
 }

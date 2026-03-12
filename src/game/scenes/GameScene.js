@@ -48,6 +48,7 @@ import {
 import { WEAPONS, getWeapon } from '../weapons.js';
 import { WeatherSystem } from '../systems/WeatherSystem.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
+import { pickNextDemoSlogan } from '../ui/demoSloganModel.js';
 import { resolveBackgroundMusicState } from './backgroundMusicModel.js';
 
 const OBJECTIVE_TEXT = 'Reduce the enemy tank to 0 HP. Use wind and craters to create better shots.';
@@ -111,6 +112,7 @@ export class GameScene extends Phaser.Scene {
     this.stabilityStep = 1 / 45;
     this.stabilityActive = true;
     this.activeTankDriving = false;
+    this.trackClankCooldown = 0;
     this.moveDustCooldown = 0;
     this.predictionDirty = true;
     this.predictionVisible = false;
@@ -125,6 +127,10 @@ export class GameScene extends Phaser.Scene {
     this.pointerInputBlockUntil = 0;
     this.battleMusicActive = false;
     this.combatEnergy = 0;
+    this.attractModeActive = false;
+    this.attractSceneTurnLimit = 0;
+    this.attractRestartEvent = null;
+    this.currentDemoSlogan = '';
   }
 
   blockPointerInput(durationMs = 160) {
@@ -534,7 +540,7 @@ export class GameScene extends Phaser.Scene {
   }
 
   isCpuControlledPlayer(index = this.turnIndex) {
-    return this.currentMode === 'cpu' && index === 1;
+    return this.attractModeActive || (this.currentMode === 'cpu' && index === 1);
   }
 
   cycleWeapon(player, direction) {
@@ -656,7 +662,7 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  updateDriveAudio() {
+  updateDriveAudio(dt = 0) {
     if (!this.audioManager) {
       return;
     }
@@ -670,6 +676,15 @@ export class GameScene extends Phaser.Scene {
     const activePlayer = this.getActivePlayer();
     const slopeBoost = activePlayer ? Math.abs(activePlayer.terrainSlope) * 0.55 : 0;
     const intensity = Phaser.Math.Clamp(0.68 + slopeBoost, 0.65, 1);
+    this.trackClankCooldown = Math.max(0, (this.trackClankCooldown ?? 0) - dt);
+    if (driving) {
+      if (this.trackClankCooldown <= 0) {
+        this.audioManager.playTrackClank(intensity);
+        this.trackClankCooldown = Phaser.Math.Linear(0.16, 0.075, intensity);
+      }
+    } else {
+      this.trackClankCooldown = 0;
+    }
     this.audioManager.setDrive(driving, intensity);
   }
 
@@ -965,6 +980,11 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  clearAttractRestart() {
+    this.attractRestartEvent?.remove?.(false);
+    this.attractRestartEvent = null;
+  }
+
   createPlayers() {
     const leftX = Phaser.Math.Between(150, 300);
     const rightX = Phaser.Math.Between(GAME_WIDTH - 300, GAME_WIDTH - 150);
@@ -1079,6 +1099,8 @@ export class GameScene extends Phaser.Scene {
   }
 
   startBattleFromStartOverlay() {
+    this.attractModeActive = false;
+    this.clearAttractRestart();
     this.battleMusicActive = true;
     stopBattleSong({ reset: true });
     this.clearOverlay();
@@ -1087,7 +1109,37 @@ export class GameScene extends Phaser.Scene {
   }
 
   showStartOverlay() {
+    this.attractModeActive = false;
+    this.clearAttractRestart();
     this.overlaySystem?.showStartOverlay();
+  }
+
+  startAttractDemo() {
+    this.attractModeActive = true;
+    this.clearAttractRestart();
+    this.attractSceneTurnLimit = Phaser.Math.Between(10, 14);
+    this.currentDemoSlogan = pickNextDemoSlogan(this.currentDemoSlogan);
+    this.startMatch({ showTurnOverlay: false });
+    this.overlaySystem?.showDemoOverlay({ slogan: this.currentDemoSlogan });
+    this.syncHud();
+  }
+
+  scheduleAttractDemoRestart(delay = 1200) {
+    this.clearAttractRestart();
+    this.attractRestartEvent = this.time.delayedCall(delay, () => {
+      if (!this.attractModeActive) {
+        return;
+      }
+      this.startAttractDemo();
+    });
+  }
+
+  advanceTurnOverlay() {
+    if (this.overlayState?.type !== 'turn' || this.isCpuControlledPlayer()) {
+      return;
+    }
+    this.clearOverlay();
+    this.syncHud();
   }
 
   presentTurnOverlay() {
@@ -1371,7 +1423,7 @@ export class GameScene extends Phaser.Scene {
       }
       this.updateTankAnimations(dt);
       this.updateProjectiles(dt);
-      this.updateDriveAudio();
+      this.updateDriveAudio(dt);
       return;
     }
 
@@ -1394,7 +1446,7 @@ export class GameScene extends Phaser.Scene {
     }
     this.updateTankAnimations(dt);
     this.updateProjectiles(dt);
-    this.updateDriveAudio();
+    this.updateDriveAudio(dt);
   }
 
   handleOverlayInput() {
@@ -1445,8 +1497,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     if (this.overlayState.type === 'turn' && !this.isCpuControlledPlayer() && advance) {
-      this.clearOverlay();
-      this.syncHud();
+      this.advanceTurnOverlay();
       return;
     }
 
@@ -2820,6 +2871,12 @@ export class GameScene extends Phaser.Scene {
     this.resolving = false;
     this.turnPending = false;
     this.winner = living[0] ?? null;
+    if (this.attractModeActive) {
+      this.showTurnBanner(this.winner ? `${this.winner.name} takes the hill` : 'Demo reset');
+      this.scheduleAttractDemoRestart(1500);
+      this.syncHud();
+      return;
+    }
     if (this.winner) {
       this.highscores = this.scoreStore.recordWin(this.winner.name);
       this.playKoFinisher();
@@ -2879,6 +2936,14 @@ export class GameScene extends Phaser.Scene {
     this.renderWindRibbon();
     this.markPredictionDirty();
     this.emitTimerUpdate();
+    if (this.attractModeActive) {
+      if (this.turnNumber >= this.attractSceneTurnLimit) {
+        this.scheduleAttractDemoRestart(900);
+        return;
+      }
+      this.syncHud();
+      return;
+    }
     this.presentTurnOverlay();
   }
 
@@ -3069,7 +3134,8 @@ export class GameScene extends Phaser.Scene {
         ? {
           type: this.overlayState.type ?? null,
           title: this.overlayState.title ?? '',
-          prompt: this.overlayState.prompt ?? ''
+          prompt: this.overlayState.prompt ?? '',
+          countdownLabel: this.overlayState.countdownLabel ?? ''
         }
         : null,
       mode: this.currentMode,

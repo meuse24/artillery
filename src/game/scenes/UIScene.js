@@ -3,7 +3,12 @@ import { GAME_HEIGHT, GAME_WIDTH, PLAYER_COLORS } from '../constants.js';
 import { GAME_SCENE_EVENTS, SCENE_KEYS } from '../config/sceneContracts.js';
 import { DialogLayoutModule } from '../ui/DialogLayoutModule.js';
 import { MobileControls } from '../ui/MobileControls.js';
+import { shouldAdvanceTurnOverlayOnGlobalPointerDown } from '../ui/overlayInteractionModel.js';
 import { OrientationGuard } from '../ui/OrientationGuard.js';
+import {
+  getNextStartAttractPhase,
+  getStartAttractPhaseDuration
+} from '../ui/startAttractModel.js';
 import {
   distributeVerticalSections,
   getStartScreenMetrics
@@ -38,6 +43,8 @@ export class UIScene extends Phaser.Scene {
     this.dialogDragPointerId = null;
     this.dialogDragLastY = 0;
     this.startScreenMetrics = getStartScreenMetrics();
+    this.startAttractPhase = 'start';
+    this.startAttractCycleEvent = null;
 
     // ── HUD layer ──────────────────────────────────────────────────────────────
     this.panel = this.add.graphics().setDepth(100);
@@ -288,6 +295,29 @@ export class UIScene extends Phaser.Scene {
       .setOrigin(0.5)
       .setDepth(124)
       .setVisible(false);
+    this.overlayCountdown = this.add
+      .text(GAME_WIDTH * 0.5 + 340, GAME_HEIGHT * 0.5 - 140, '', {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '13px',
+        color: '#8da3af',
+        align: 'right'
+      })
+      .setOrigin(1, 0.5)
+      .setDepth(124)
+      .setVisible(false);
+    this.demoSlogan = this.add
+      .text(GAME_WIDTH * 0.5, GAME_HEIGHT - 42, 'STEEL. FIRE. TOTAL DOMINATION.', {
+        fontFamily: '"Trebuchet MS", "Verdana", sans-serif',
+        fontSize: '28px',
+        fontStyle: 'bold',
+        color: '#ffd995',
+        align: 'center',
+        stroke: '#08131b',
+        strokeThickness: 6
+      })
+      .setOrigin(0.5)
+      .setDepth(124)
+      .setVisible(false);
     this.dialogScrollHitArea = this.add
       .zone(0, 0, 10, 10)
       .setDepth(123)
@@ -447,7 +477,8 @@ export class UIScene extends Phaser.Scene {
       this.overlayTitle,
       this.overlayBody,
       this.overlayScoreboard,
-      this.overlayPrompt
+      this.overlayPrompt,
+      this.overlayCountdown
     ];
     this.startOverlayContent = [
       this.startKicker,
@@ -569,6 +600,7 @@ export class UIScene extends Phaser.Scene {
 
     // Unified dialog scrolling: mouse wheel + keyboard + drag/swipe
     this.input.on('wheel', this.handleOverlayWheel, this);
+    this.input.on('pointerdown', this.handleGlobalOverlayPointerDown, this);
     this.input.on('pointermove', this.handleDialogPointerMove, this);
     this.input.on('pointerup', this.handleDialogPointerUp, this);
     this.input.on('pointerupoutside', this.handleDialogPointerUp, this);
@@ -819,12 +851,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   handleShutdown() {
+    this.clearStartAttractCycle();
     this.scale.off('resize', this.applyResponsiveLayout, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.HUD_UPDATE, this.updateHud, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.TURN_BANNER, this.showBanner, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.OVERLAY_UPDATE, this.updateOverlay, this);
     this.gameScene?.events.off(GAME_SCENE_EVENTS.TIMER_UPDATE, this.updateTimer, this);
     this.input.off('wheel', this.handleOverlayWheel, this);
+    this.input.off('pointerdown', this.handleGlobalOverlayPointerDown, this);
     this.input.off('pointermove', this.handleDialogPointerMove, this);
     this.input.off('pointerup', this.handleDialogPointerUp, this);
     this.input.off('pointerupoutside', this.handleDialogPointerUp, this);
@@ -840,7 +874,69 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
+  clearStartAttractCycle() {
+    this.startAttractCycleEvent?.remove?.(false);
+    this.startAttractCycleEvent = null;
+    this.startAttractPhase = 'start';
+  }
+
+  scheduleStartAttractPhaseAdvance() {
+    const overlayType = this.gameScene?.overlayState?.type;
+    if (overlayType !== 'start' && overlayType !== 'demo') {
+      this.clearStartAttractCycle();
+      return;
+    }
+
+    const delay = getStartAttractPhaseDuration(this.startAttractPhase);
+    this.startAttractCycleEvent = this.time.delayedCall(delay, () => {
+      const currentType = this.gameScene?.overlayState?.type;
+      if (currentType !== this.startAttractPhase) {
+        this.clearStartAttractCycle();
+        return;
+      }
+
+      const nextPhase = getNextStartAttractPhase(this.startAttractPhase);
+      if (nextPhase === 'demo') {
+        this.gameScene?.startAttractDemo?.();
+      } else {
+        this.gameScene?.showStartOverlay?.();
+      }
+    });
+  }
+
+  syncStartAttractCycle(phase = 'start') {
+    this.clearStartAttractCycle();
+    this.startAttractPhase = phase;
+    this.scheduleStartAttractPhaseAdvance();
+  }
+
   // ── Overlay click router ─────────────────────────────────────────────────────
+  handleGlobalOverlayPointerDown(pointer, currentlyOver = []) {
+    if (!this.gameScene) {
+      return;
+    }
+
+    if (this.gameScene.overlayState?.type === 'demo') {
+      this.gameScene.blockPointerInput?.(180);
+      this.gameScene.showStartOverlay?.();
+      return;
+    }
+
+    const shouldAdvance = shouldAdvanceTurnOverlayOnGlobalPointerDown({
+      overlayType: this.gameScene.overlayState?.type ?? null,
+      isCpuTurn: this.gameScene.isCpuControlledPlayer(),
+      now: this.gameScene.time?.now ?? 0,
+      blockedUntil: this.gameScene.pointerInputBlockUntil ?? 0,
+      currentlyOver: Array.isArray(currentlyOver) ? currentlyOver : []
+    });
+
+    if (!shouldAdvance) {
+      return;
+    }
+
+    this.handleOverlayClick();
+  }
+
   handleOverlayClick() {
     const state = this.gameScene.overlayState;
     if (!state) return;
@@ -849,8 +945,7 @@ export class UIScene extends Phaser.Scene {
       this.startFromOverlay();
     } else if (state.type === 'turn') {
       if (!this.gameScene.isCpuControlledPlayer()) {
-        this.gameScene.clearOverlay();
-        this.gameScene.syncHud();
+        this.gameScene.advanceTurnOverlay?.();
       }
     } else if (state.type === 'gameover') {
       this.gameScene.startMatch();
@@ -1202,6 +1297,8 @@ export class UIScene extends Phaser.Scene {
     const textWidth = this.overlayPanel.width - sidePad * 2;
     const titleY = panelTop + Math.round(headerH * 0.5) - verticalLift;
     const bodyY = panelTop + headerH + (this.compactLayout ? 18 : 22) - verticalLift;
+    const countdownX = panelLeft + this.overlayPanel.width - sidePad;
+    const countdownY = panelTop + headerH - (this.compactLayout ? 18 : 20) - verticalLift;
     const promptY = panelTop + this.overlayPanel.height - Math.round(footerH * 0.55) - verticalLift;
 
     return {
@@ -1209,6 +1306,8 @@ export class UIScene extends Phaser.Scene {
       textWidth,
       bodyY,
       titleY,
+      countdownX,
+      countdownY,
       promptY,
       headerH,
       footerH
@@ -1226,6 +1325,7 @@ export class UIScene extends Phaser.Scene {
     this.overlayBody.setPosition(layout.textX, bodyTop);
     this.overlayBody.setAlign('left');
     this.overlayBody.setWordWrapWidth(layout.textWidth, true);
+    this.overlayCountdown.setPosition(layout.countdownX, layout.countdownY);
     this.overlayPrompt.setPosition(this.overlayPanel.x, layout.promptY);
     this.overlayPrompt.setWordWrapWidth(layout.textWidth, true);
     this.drawTurnDialogCard();
@@ -2028,14 +2128,16 @@ export class UIScene extends Phaser.Scene {
 
   // ── Overlay rendering ─────────────────────────────────────────────────────────
   updateOverlay(overlay) {
-    const visible = Boolean(overlay);
+    const hasOverlay = Boolean(overlay);
+    const isDemo = Boolean(overlay && overlay.type === 'demo');
+    const visible = hasOverlay && !isDemo;
     const isStart = Boolean(overlay && overlay.type === 'start');
     const isTurn = Boolean(overlay && overlay.type === 'turn');
     const isGameOver = Boolean(overlay && overlay.type === 'gameover');
     const isHelp = Boolean(overlay && overlay.type === 'help');
     const isUnified = isTurn || isGameOver || isHelp;
     const startMetrics = this.startScreenMetrics ?? getStartScreenMetrics({ compact: this.compactLayout });
-    this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent]);
+    this.tweens.killTweensOf([this.overlayShade, ...this.overlayContent, this.demoSlogan]);
     this.tweens.killTweensOf(this.startOverlayContent);
 
     // Reset help state when overlay closes or changes away from help
@@ -2082,6 +2184,8 @@ export class UIScene extends Phaser.Scene {
     this.overlayBody.setVisible(visible);
     this.overlayScoreboard.setVisible(visible && !isStart && !isUnified);
     this.overlayPrompt.setVisible(visible);
+    this.overlayCountdown.setVisible(visible && isTurn && Boolean(overlay?.countdownLabel));
+    this.demoSlogan.setVisible(isDemo);
     this.dialogScrollHitArea.setVisible(visible && isUnified);
     this.helpHtmlPane?.setVisible(false);
     this.startDeco.setVisible(isStart);
@@ -2106,7 +2210,34 @@ export class UIScene extends Phaser.Scene {
       this.mobileHelpButton.setVisible(!isTurn && !isGameOver);
     }
 
-    if (!visible) {
+    if (!hasOverlay || isDemo) {
+      if (isDemo) {
+        this.syncStartAttractCycle('demo');
+        this.demoSlogan.setText(overlay?.slogan ?? 'STEEL. FIRE. TOTAL DOMINATION.');
+        this.demoSlogan.setFontSize(this.compactLayout ? '22px' : '28px');
+        const sloganY = this.controlsText.y - this.controlsText.displayHeight - (this.compactLayout ? 42 : 54);
+        this.demoSlogan.setPosition(GAME_WIDTH * 0.5, sloganY);
+        this.demoSlogan.setWordWrapWidth(GAME_WIDTH - (this.compactLayout ? 120 : 180), true);
+        this.demoSlogan.setAlpha(0);
+        this.tweens.add({
+          targets: this.demoSlogan,
+          alpha: 0.92,
+          duration: 260,
+          ease: 'Cubic.Out'
+        });
+        this.tweens.add({
+          targets: this.demoSlogan,
+          alpha: 0.52,
+          yoyo: true,
+          repeat: -1,
+          duration: 1400,
+          ease: 'Sine.InOut'
+        });
+      } else {
+        this.clearStartAttractCycle();
+        this.demoSlogan.setVisible(false);
+        this.demoSlogan.setText('');
+      }
       this.overlayShade.setAlpha(0);
       this.overlayContent.forEach((item) => item.setAlpha(0));
       this.turnDialogCard.clear();
@@ -2134,6 +2265,15 @@ export class UIScene extends Phaser.Scene {
       return;
     }
 
+    if (isStart) {
+      this.syncStartAttractCycle('start');
+    } else {
+      this.clearStartAttractCycle();
+    }
+    this.demoSlogan.setVisible(false);
+    this.demoSlogan.setAlpha(0);
+    this.demoSlogan.setText('');
+
     // ── Populate text ──────────────────────────────────────────────────────────
     this.overlayTitle.setText(overlay.title ?? '');
     const unifiedBody = isUnified
@@ -2150,6 +2290,7 @@ export class UIScene extends Phaser.Scene {
       this.overlayBody.setVisible(!hasHelpHtml);
     }
     this.overlayPrompt.setText(overlay.prompt ?? '');
+    this.overlayCountdown.setText(isTurn ? (overlay.countdownLabel ?? '') : '');
     this.startKicker.setText(overlay.kicker ?? '');
     this.startTagline.setText(overlay.tagline ?? '');
     this.startKicker.setFontSize(`${startMetrics.kickerFontPx}px`);
@@ -2180,6 +2321,7 @@ export class UIScene extends Phaser.Scene {
     // ── Style by type ──────────────────────────────────────────────────────────
     this.overlayTitle.setScale(1);
     this.overlayPrompt.setAlpha(1);
+    this.overlayCountdown.setAlpha(1);
     this.overlayTitle.setFontSize(
       overlay.type === 'start'
         ? `${startMetrics.titleFontPx}px`
@@ -2204,14 +2346,21 @@ export class UIScene extends Phaser.Scene {
             ? (this.compactLayout ? '18px' : '20px')
             : '20px'
     );
+    this.overlayCountdown.setFontSize(isTurn ? (this.compactLayout ? '12px' : '13px') : '13px');
+    this.overlayCountdown.setColor(isTurn ? '#89a0ac' : '#8da3af');
+    this.overlayCountdown.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
     this.overlayBody.setFontSize(
       isStart
         ? `${startMetrics.bodyFontPx}px`
         : isTurn
           ? (this.compactLayout ? '15px' : '16px')
+          : isHelp
+            ? (this.compactLayout ? '18px' : '19px')
           : '17px'
     );
-    this.overlayBody.setLineSpacing(isStart ? startMetrics.bodyLineSpacing : isTurn ? 5 : 7);
+    this.overlayBody.setLineSpacing(
+      isStart ? startMetrics.bodyLineSpacing : isTurn ? 5 : isHelp ? 9 : 7
+    );
     this.overlayBody.setColor('#f4f1df');
     this.overlayScoreboard.setColor('#7fe7dc');
     this.overlayBody.setFontFamily('"Trebuchet MS", "Verdana", sans-serif');
@@ -2270,6 +2419,7 @@ export class UIScene extends Phaser.Scene {
     this.overlayBody.setAlpha(0);
     this.overlayScoreboard.setAlpha(0);
     this.overlayPrompt.setAlpha(0);
+    this.overlayCountdown.setAlpha(0);
     this.startDeco.setAlpha(0);
     this.startOverlayContent.forEach((item) => { item.setAlpha(0); item.setScale(1); });
 
